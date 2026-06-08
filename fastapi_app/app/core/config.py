@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
 
+    # App Settings
+    APP_NAME: str = "agenticx-backend"
+    APP_VERSION: str = "1.0.0"
+    ENVIRONMENT: str = "production"
+    FRONTEND_URL: str | None = None
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",")]

@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.api_router import api_router
+from app.api.routes import health
 
 
 @asynccontextmanager
@@ -31,8 +32,4 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
-
-
-@app.get("/health")
-async def health():
-    return {"status": "ok", "service": "AgenticX FastAPI"}
+app.include_router(health.router)
