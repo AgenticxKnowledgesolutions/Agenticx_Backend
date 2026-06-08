@@ -1,13 +1,31 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 from datetime import datetime, timezone
 import logging
 from app.core.config import settings
-from app.schemas.health import HealthResponse
+from app.schemas.health import HealthResponse, RootResponse
 
 # Set up standard logger
 logger = logging.getLogger("app.health")
 
 router = APIRouter(tags=["health"])
+
+
+@router.get(
+    "/",
+    response_model=RootResponse,
+    summary="Root metadata endpoint",
+    description="Returns lightweight service identification and metadata.",
+)
+async def get_root() -> RootResponse:
+    logger.info("Root endpoint request received")
+    return RootResponse(
+        status="healthy",
+        service="agenticx-backend",
+        version=settings.APP_VERSION,
+        environment=settings.ENVIRONMENT,
+        health="/health",
+        docs="/docs",
+    )
 
 
 @router.get(
@@ -27,3 +45,14 @@ async def get_health() -> HealthResponse:
         timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         frontend_url=settings.FRONTEND_URL,
     )
+
+
+@router.head(
+    "/health",
+    status_code=200,
+    summary="Health check HEAD endpoint",
+    description="Returns HTTP 200 with an empty body for automated uptime monitoring checks.",
+)
+async def head_health() -> Response:
+    logger.info("Uptime health check HEAD request received")
+    return Response(status_code=200)
