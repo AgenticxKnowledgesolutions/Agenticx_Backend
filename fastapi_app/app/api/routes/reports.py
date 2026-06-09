@@ -30,7 +30,7 @@ def parse_date(date_str: Optional[str]) -> Optional[datetime]:
 
 
 async def get_filtered_leads_query(date_from: Optional[str], date_to: Optional[str]):
-    stmt = select(Lead)
+    stmt = select(Lead).where(Lead.is_deleted == False)
     
     if date_from:
         d_from = parse_date(date_from)
@@ -352,7 +352,7 @@ def generate_pdf_export(leads: List[Lead], date_from: Optional[str], date_to: Op
         
     status_table_data = [[Paragraph("Lead Status", style_body_bold), Paragraph("Count", style_body_bold)]]
     for s_name, count in status_counts.items():
-        status_table_data.append([Paragraph(s_name, style_cell), Paragraph(str(count), style_cell)])
+        status_table_data.append([Paragraph(s_name or "Pending", style_cell), Paragraph(str(count), style_cell)])
         
     course_table_data = [[Paragraph("Course Name", style_body_bold), Paragraph("Count", style_body_bold)]]
     for c_name, count in sorted(course_counts.items(), key=lambda x: x[1], reverse=True)[:5]:
