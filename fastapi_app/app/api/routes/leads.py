@@ -6,7 +6,8 @@ from app.core.database import get_db
 from app.schemas.lead import (
     LeadCreate, LeadResponse, LeadUpdate, 
     DuplicateCheckRequest, BulkUpdatePayload, BulkDeletePayload,
-    LeadNoteCreate, LeadNoteResponse, LeadTimelineResponse
+    LeadNoteCreate, LeadNoteResponse, LeadTimelineResponse,
+    ManualMergePayload
 )
 from app.services import lead_service
 from app.deps import require_admin
@@ -17,11 +18,36 @@ from app.core.limiter import limiter
 router = APIRouter(prefix="/leads", tags=["leads"])
 
 
-@router.post("/", response_model=LeadResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/15 minutes;20/day")
 async def submit_lead(request: Request, data: LeadCreate, db: AsyncSession = Depends(get_db)):
     """Public: anyone can submit a contact/enquiry form."""
-    return await lead_service.create_lead(db, data)
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    x_forwarded_for = request.headers.get("X-Forwarded-For")
+    if x_forwarded_for:
+        client_ip = x_forwarded_for.split(",")[0].strip()
+    
+    return await lead_service.create_lead(db, data, client_ip=client_ip)
+
+
+@router.post("/merge", response_model=LeadResponse)
+async def merge_leads(
+    payload: ManualMergePayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin: manually merge duplicate leads into a master lead."""
+    try:
+        master = await lead_service.merge_leads(
+            db, 
+            master_id=payload.master_lead_id, 
+            duplicate_ids=payload.duplicate_lead_ids,
+            user_email=current_user.email
+        )
+        return master
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 
 @router.post("/check-duplicate", response_model=Optional[LeadResponse])

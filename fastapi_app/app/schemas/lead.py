@@ -62,6 +62,19 @@ class LeadUpdate(BaseModel):
     assigned_to: Optional[str] = None
 
 
+class LeadInteractionResponse(BaseModel):
+    id: str
+    lead_id: str
+    interaction_type: str
+    source: Optional[str] = None
+    course: Optional[str] = None
+    notes: Optional[str] = None
+    ip_address: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class LeadResponse(BaseModel):
     id: str
     name: str
@@ -83,6 +96,16 @@ class LeadResponse(BaseModel):
     notes: List[LeadNoteResponse] = []
     timeline_events: List[LeadTimelineResponse] = []
 
+    # New fields for duplicate lead tracking & scoring
+    interaction_count: int = 1
+    last_interaction_at: Optional[datetime] = None
+    first_source: Optional[str] = None
+    latest_source: Optional[str] = None
+    merged_courses: List[str] = []
+    duplicate_hits: int = 0
+    lead_score: int = 0
+    interactions: List[LeadInteractionResponse] = []
+
     model_config = {"from_attributes": True}
 
 
@@ -99,3 +122,9 @@ class BulkUpdatePayload(BaseModel):
 
 class BulkDeletePayload(BaseModel):
     ids: List[str]
+
+
+class ManualMergePayload(BaseModel):
+    master_lead_id: str
+    duplicate_lead_ids: List[str]
+

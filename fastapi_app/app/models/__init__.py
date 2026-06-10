@@ -7,6 +7,7 @@ from app.models.course import Course, TechStack, CurriculumMonth, CurriculumModu
 from app.models.lead import Lead
 from app.models.lead_note import LeadNote
 from app.models.lead_timeline import LeadTimelineEvent
+from app.models.lead_interaction import LeadInteraction
 from app.models.company_settings import CompanySettings
 
 __all__ = [
@@ -18,5 +19,6 @@ __all__ = [
     "Lead",
     "LeadNote",
     "LeadTimelineEvent",
+    "LeadInteraction",
     "CompanySettings",
 ]
