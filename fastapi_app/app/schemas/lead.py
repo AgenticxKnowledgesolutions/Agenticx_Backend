@@ -43,6 +43,12 @@ class LeadCreate(BaseModel):
     source: Optional[str] = "Website"
     priority: Optional[str] = "Cold"
     assigned_to: Optional[str] = None
+    
+    # New fields for frontend form submissions (backward compatible)
+    course_interest: Optional[str] = None
+    course_slug: Optional[str] = None
+    goal: Optional[str] = None
+
 
 
 class LeadUpdate(BaseModel):

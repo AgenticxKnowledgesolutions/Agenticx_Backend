@@ -22,5 +22,8 @@ class Review(Base):
     image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     source: Mapped[ReviewSource] = mapped_column(SAEnum(ReviewSource), default=ReviewSource.internal)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[str | None] = mapped_column(String(50), nullable=True)
     is_featured: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

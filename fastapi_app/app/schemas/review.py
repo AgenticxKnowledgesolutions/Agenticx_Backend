@@ -33,6 +33,9 @@ class ReviewResponse(BaseModel):
     image_url: Optional[str] = None
     source: str
     is_active: bool
+    is_deleted: bool = False
+    deleted_at: Optional[datetime] = None
+    deleted_by: Optional[str] = None
     is_featured: bool
     created_at: datetime
 

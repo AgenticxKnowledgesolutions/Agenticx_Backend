@@ -44,6 +44,9 @@ class ActivityResponse(BaseModel):
     end_date: Optional[datetime] = None
     registration_url: Optional[str] = None
     is_active: bool
+    is_deleted: bool = False
+    deleted_at: Optional[datetime] = None
+    deleted_by: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -1,6 +1,7 @@
+from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List
+from typing import List, Optional
 from app.models.review import Review
 from app.schemas.review import ReviewCreate, ReviewUpdate
 
@@ -10,7 +11,7 @@ async def list_active_reviews(db: AsyncSession) -> List[Review]:
     Mirrors the filter/sort logic previously living in reviewsService.ts."""
     result = await db.execute(
         select(Review)
-        .where(Review.is_active == True, Review.rating >= 4)
+        .where(Review.is_active == True, Review.rating >= 4, Review.is_deleted == False)
         .order_by(Review.rating.desc(), Review.is_featured.desc())
     )
     reviews = list(result.scalars().all())
@@ -20,7 +21,7 @@ async def list_active_reviews(db: AsyncSession) -> List[Review]:
 
 
 async def get_review(db: AsyncSession, review_id: str) -> Review | None:
-    result = await db.execute(select(Review).where(Review.id == review_id))
+    result = await db.execute(select(Review).where(Review.id == review_id, Review.is_deleted == False))
     return result.scalar_one_or_none()
 
 
@@ -40,7 +41,29 @@ async def update_review(db: AsyncSession, review: Review, data: ReviewUpdate) ->
     return review
 
 
-async def delete_review(db: AsyncSession, review: Review) -> None:
-    """Soft delete — sets is_active=False."""
-    review.is_active = False
+async def delete_review(db: AsyncSession, review: Review, user_email: Optional[str] = None) -> None:
+    """Soft delete — sets is_deleted=True."""
+    review.is_deleted = True
+    review.deleted_at = datetime.utcnow()
+    review.deleted_by = user_email
+    await db.commit()
+
+
+async def list_trash_reviews(db: AsyncSession) -> List[Review]:
+    result = await db.execute(
+        select(Review).where(Review.is_deleted == True).order_by(Review.deleted_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+async def restore_review(db: AsyncSession, review: Review) -> Review:
+    review.is_deleted = False
+    review.deleted_at = None
+    review.deleted_by = None
+    await db.commit()
+    return review
+
+
+async def hard_delete_review(db: AsyncSession, review: Review) -> None:
+    await db.delete(review)
     await db.commit()

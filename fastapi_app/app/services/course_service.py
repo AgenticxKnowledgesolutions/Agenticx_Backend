@@ -1,7 +1,8 @@
+from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from typing import List
+from typing import List, Optional
 from app.models.course import Course, TechStack, CurriculumMonth, CurriculumModule
 from app.schemas.course import CourseCreate, CourseUpdate, CourseResponse, CourseStats, TechStackItem, CurriculumMonth as CurriculumMonthSchema, ModuleData
 
@@ -46,7 +47,7 @@ def _to_response(course: Course) -> CourseResponse:
 
 async def list_courses(db: AsyncSession) -> List[CourseResponse]:
     result = await db.execute(
-        select(Course).where(Course.is_active == True)
+        select(Course).where(Course.is_active == True, Course.is_deleted == False)
         .options(*_eager_options())
         .order_by(Course.created_at.desc())
     )
@@ -56,7 +57,7 @@ async def list_courses(db: AsyncSession) -> List[CourseResponse]:
 
 async def get_course_by_slug(db: AsyncSession, slug: str) -> CourseResponse | None:
     result = await db.execute(
-        select(Course).where(Course.slug == slug, Course.is_active == True)
+        select(Course).where(Course.slug == slug, Course.is_active == True, Course.is_deleted == False)
         .options(*_eager_options())
     )
     course = result.scalar_one_or_none()
@@ -65,7 +66,7 @@ async def get_course_by_slug(db: AsyncSession, slug: str) -> CourseResponse | No
 
 async def get_course_orm(db: AsyncSession, course_id: str) -> Course | None:
     result = await db.execute(
-        select(Course).where(Course.id == course_id).options(*_eager_options())
+        select(Course).where(Course.id == course_id, Course.is_deleted == False).options(*_eager_options())
     )
     return result.scalar_one_or_none()
 
@@ -118,6 +119,31 @@ async def update_course(db: AsyncSession, course: Course, data: CourseUpdate) ->
     return _to_response(result.scalar_one())
 
 
-async def delete_course(db: AsyncSession, course: Course) -> None:
-    course.is_active = False
+async def delete_course(db: AsyncSession, course: Course, user_email: Optional[str] = None) -> None:
+    course.is_deleted = True
+    course.deleted_at = datetime.utcnow()
+    course.deleted_by = user_email
+    await db.commit()
+
+
+async def list_trash_courses(db: AsyncSession) -> List[CourseResponse]:
+    result = await db.execute(
+        select(Course).where(Course.is_deleted == True)
+        .options(*_eager_options())
+        .order_by(Course.deleted_at.desc())
+    )
+    courses = result.scalars().unique().all()
+    return [_to_response(c) for c in courses]
+
+
+async def restore_course(db: AsyncSession, course: Course) -> CourseResponse:
+    course.is_deleted = False
+    course.deleted_at = None
+    course.deleted_by = None
+    await db.commit()
+    return _to_response(course)
+
+
+async def hard_delete_course(db: AsyncSession, course: Course) -> None:
+    await db.delete(course)
     await db.commit()

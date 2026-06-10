@@ -192,9 +192,9 @@ async def create_lead(db: AsyncSession, data: LeadCreate) -> Lead:
         name=data.name,
         email=data.email,
         phone=data.phone,
-        message=data.message,
-        interested_course=data.interested_course,
-        source_page=data.source_page,
+        message=data.goal or data.message,
+        interested_course=data.course_interest or data.interested_course,
+        source_page=data.course_slug or data.source_page,
         status=data.status or "Pending",
         admin_notes=data.admin_notes,
         last_contacted_at=data.last_contacted_at,
@@ -218,8 +218,9 @@ async def create_lead(db: AsyncSession, data: LeadCreate) -> Lead:
     )
     
     # Handle initial message/note
-    if data.message:
-        await add_lead_note(db, lead.id, data.message, created_by="System")
+    initial_message = data.goal or data.message
+    if initial_message:
+        await add_lead_note(db, lead.id, initial_message, created_by="System")
     elif data.admin_notes:
         await add_lead_note(db, lead.id, data.admin_notes, created_by="Admin")
         
@@ -299,3 +300,38 @@ async def update_lead(db: AsyncSession, lead_id: str, data: LeadUpdate) -> Optio
         await db.commit()
         
     return lead
+
+
+async def list_trash_leads(db: AsyncSession) -> List[Lead]:
+    query = select(Lead).where(
+        Lead.is_deleted == True
+    ).order_by(
+        Lead.deleted_at.desc()
+    ).options(
+        selectinload(Lead.notes),
+        selectinload(Lead.timeline_events)
+    )
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+async def restore_lead(db: AsyncSession, lead: Lead, user_email: Optional[str] = None) -> Lead:
+    lead.is_deleted = False
+    lead.deleted_at = None
+    lead.deleted_by = None
+    
+    await add_timeline_event(
+        db,
+        lead_id=lead.id,
+        event_type="Restored",
+        description="Lead restored from trash",
+        created_by=user_email
+    )
+    
+    await db.commit()
+    return lead
+
+
+async def hard_delete_lead(db: AsyncSession, lead: Lead) -> None:
+    await db.delete(lead)
+    await db.commit()

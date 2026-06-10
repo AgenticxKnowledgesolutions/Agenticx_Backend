@@ -11,6 +11,7 @@ from app.schemas.lead import (
 from app.services import lead_service
 from app.deps import require_admin
 from app.models.user import User
+from app.models.lead import Lead
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 
@@ -42,6 +43,14 @@ async def list_leads(
     _: User = Depends(require_admin),
 ):
     return await lead_service.list_leads(db, skip=skip, limit=limit)
+
+
+@router.get("/trash", response_model=List[LeadResponse])
+async def list_trash_leads(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    return await lead_service.list_trash_leads(db)
 
 
 @router.get("/{lead_id}", response_model=LeadResponse)
@@ -130,3 +139,28 @@ async def get_timeline(
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     return lead.timeline_events
+
+
+@router.post("/{lead_id}/restore", response_model=LeadResponse)
+async def restore_lead(
+    lead_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    lead = await db.get(Lead, lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return await lead_service.restore_lead(db, lead, current_user.email)
+
+
+@router.delete("/{lead_id}/hard-delete", status_code=status.HTTP_200_OK)
+async def hard_delete_lead(
+    lead_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    lead = await db.get(Lead, lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    await lead_service.hard_delete_lead(db, lead)
+    return {"detail": "Lead permanently deleted"}

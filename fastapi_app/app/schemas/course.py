@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional, List
 from decimal import Decimal
+from datetime import datetime
 
 
 # --- Nested schemas (match courseService.ts Course interface exactly) ---
@@ -110,5 +111,8 @@ class CourseResponse(BaseModel):
     coverImageUrl: Optional[str] = None
     brochureUrl: Optional[str] = None
     isAiOptimized: bool = False
+    is_deleted: bool = False
+    deleted_at: Optional[datetime] = None
+    deleted_by: Optional[str] = None
 
     model_config = {"from_attributes": True}

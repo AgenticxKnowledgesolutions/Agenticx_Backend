@@ -15,11 +15,11 @@ async def get_dashboard_summary(db: AsyncSession) -> Dict[str, Any]:
     today_end = datetime(now.year, now.month, now.day, 23, 59, 59)
     start_of_month = datetime(now.year, now.month, 1)
 
-    # 1. Totals (excluding soft deleted leads)
+    # 1. Totals (excluding soft deleted leads, courses, reviews, activities)
     total_leads = (await db.execute(select(func.count(Lead.id)).where(Lead.is_deleted == False))).scalar() or 0
-    total_courses = (await db.execute(select(func.count(Course.id)))).scalar() or 0
-    total_reviews = (await db.execute(select(func.count(Review.id)))).scalar() or 0
-    total_activities = (await db.execute(select(func.count(Activity.id)))).scalar() or 0
+    total_courses = (await db.execute(select(func.count(Course.id)).where(Course.is_deleted == False))).scalar() or 0
+    total_reviews = (await db.execute(select(func.count(Review.id)).where(Review.is_deleted == False))).scalar() or 0
+    total_activities = (await db.execute(select(func.count(Activity.id)).where(Activity.is_deleted == False))).scalar() or 0
 
     new_leads_this_month = (
         await db.execute(select(func.count(Lead.id)).where(Lead.created_at >= start_of_month, Lead.is_deleted == False))
@@ -199,10 +199,10 @@ async def get_dashboard_summary(db: AsyncSession) -> Dict[str, Any]:
             "enrollment_date": enr.created_at.isoformat() if enr.created_at else None
         })
 
-    # 7. Upcoming Activities (soonest 5)
+    # 7. Upcoming Activities (soonest 5, excluding deleted)
     activities_result = await db.execute(
         select(Activity)
-        .where(Activity.is_active == True, Activity.start_date >= today_start)
+        .where(Activity.is_active == True, Activity.start_date >= today_start, Activity.is_deleted == False)
         .order_by(Activity.start_date.asc())
         .limit(5)
     )
@@ -255,14 +255,15 @@ async def get_dashboard_summary(db: AsyncSession) -> Dict[str, Any]:
     if pending_7d_count > 0:
         alerts.append(f"{pending_7d_count} leads pending > 7 days")
 
-    # activities starting this week
+    # activities starting this week (excluding deleted)
     end_of_week = today_start + timedelta(days=7)
     activities_week_count = (
         await db.execute(
             select(func.count(Activity.id)).where(
                 Activity.is_active == True,
                 Activity.start_date >= today_start,
-                Activity.start_date <= end_of_week
+                Activity.start_date <= end_of_week,
+                Activity.is_deleted == False
             )
         )
     ).scalar() or 0
