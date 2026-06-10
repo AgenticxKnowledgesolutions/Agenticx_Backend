@@ -6,6 +6,9 @@ from app.api.api_router import api_router
 from app.api.routes import health
 
 
+from slowapi.errors import RateLimitExceeded
+from app.core.limiter import limiter, rate_limit_exceeded_handler
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -21,6 +24,10 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan,
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
 
 # CORS — allow React dev server and production origin
 app.add_middleware(

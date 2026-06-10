@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status, HTTPException
+from fastapi import APIRouter, Depends, status, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
@@ -12,12 +12,14 @@ from app.services import lead_service
 from app.deps import require_admin
 from app.models.user import User
 from app.models.lead import Lead
+from app.core.limiter import limiter
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 
 
 @router.post("/", response_model=LeadResponse, status_code=status.HTTP_201_CREATED)
-async def submit_lead(data: LeadCreate, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/15 minutes;20/day")
+async def submit_lead(request: Request, data: LeadCreate, db: AsyncSession = Depends(get_db)):
     """Public: anyone can submit a contact/enquiry form."""
     return await lead_service.create_lead(db, data)
 

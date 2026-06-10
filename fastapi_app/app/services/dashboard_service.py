@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, List
 
 from app.models.lead import Lead
@@ -10,10 +11,11 @@ from app.models.activity import Activity
 
 
 async def get_dashboard_summary(db: AsyncSession) -> Dict[str, Any]:
-    now = datetime.now()
-    today_start = datetime(now.year, now.month, now.day, 0, 0, 0)
-    today_end = datetime(now.year, now.month, now.day, 23, 59, 59)
-    start_of_month = datetime(now.year, now.month, 1)
+    ist_tz = ZoneInfo("Asia/Kolkata")
+    now = datetime.now(ist_tz)
+    today_start = datetime(now.year, now.month, now.day, 0, 0, 0, tzinfo=ist_tz)
+    today_end = datetime(now.year, now.month, now.day, 23, 59, 59, tzinfo=ist_tz)
+    start_of_month = datetime(now.year, now.month, 1, tzinfo=ist_tz)
 
     # 1. Totals (excluding soft deleted leads, courses, reviews, activities)
     total_leads = (await db.execute(select(func.count(Lead.id)).where(Lead.is_deleted == False))).scalar() or 0
@@ -229,7 +231,7 @@ async def get_dashboard_summary(db: AsyncSession) -> Dict[str, Any]:
     )
     followups = []
     for f in today_followups_list.scalars().all():
-        due_time = f.next_followup_date.strftime("%I:%M %p") if f.next_followup_date else "12:00 PM"
+        due_time = f.next_followup_date.isoformat() if f.next_followup_date else ""
         followups.append({
             "id": f.id,
             "name": f.name,
