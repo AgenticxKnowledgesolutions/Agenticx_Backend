@@ -55,6 +55,9 @@ class CompanySettings(Base):
     meta_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     meta_keywords: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
+    # Global Curriculum Brochure
+    curriculum_brochure_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

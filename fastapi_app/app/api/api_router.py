@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.routes import auth, reviews, activities, courses, leads, uploads, company_settings, dashboard, reports, health
+from app.api.routes import auth, reviews, activities, courses, leads, uploads, company_settings, dashboard, reports, health, candidates
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -13,3 +13,4 @@ api_router.include_router(company_settings.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(reports.router)
 api_router.include_router(health.router)
+api_router.include_router(candidates.router)

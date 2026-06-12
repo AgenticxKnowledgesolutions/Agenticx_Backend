@@ -11,7 +11,7 @@ ALLOWED_IMAGE_FOLDERS = {"courses/thumbnails", "activities/banners", "reviews", 
 
 ALLOWED_PDF_EXTENSIONS = {"pdf"}
 ALLOWED_PDF_MIMES = {"application/pdf"}
-ALLOWED_PDF_FOLDERS = {"courses/brochures"}
+ALLOWED_PDF_FOLDERS = {"courses/brochures", "company-settings/brochures"}
 
 # Size limits
 MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB

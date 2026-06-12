@@ -42,6 +42,7 @@ class CompanySettingsUpdate(BaseModel):
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
     meta_keywords: Optional[str] = None
+    curriculum_brochure_url: Optional[str] = None
 
 
 class CompanySettingsResponse(BaseModel):
@@ -84,6 +85,7 @@ class CompanySettingsResponse(BaseModel):
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
     meta_keywords: Optional[str] = None
+    curriculum_brochure_url: Optional[str] = None
 
     created_at: datetime
     updated_at: datetime

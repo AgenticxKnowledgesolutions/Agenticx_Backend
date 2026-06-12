@@ -9,6 +9,8 @@ from app.models.lead_note import LeadNote
 from app.models.lead_timeline import LeadTimelineEvent
 from app.models.lead_interaction import LeadInteraction
 from app.models.company_settings import CompanySettings
+from app.models.candidate_application import CandidateImportBatch, CandidateApplication, CandidateNote, CandidateTimelineEvent
+from app.models.admin_notification import AdminNotification
 
 __all__ = [
     "Base",
@@ -21,4 +23,10 @@ __all__ = [
     "LeadTimelineEvent",
     "LeadInteraction",
     "CompanySettings",
+    "CandidateImportBatch",
+    "CandidateApplication",
+    "CandidateNote",
+    "CandidateTimelineEvent",
+    "AdminNotification"
 ]
+
