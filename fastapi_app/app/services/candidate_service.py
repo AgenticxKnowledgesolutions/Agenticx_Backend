@@ -165,6 +165,24 @@ class CandidateService:
         candidate.document_status = cls.calculate_document_status(candidate)
 
         db.add(candidate)
+        
+        # Update associated lead to Converted status if lead_id is provided
+        lead_id = data.get("lead_id")
+        if lead_id:
+            from app.services.lead_service import add_timeline_event as add_lead_timeline_event
+            lead_stmt = select(Lead).where(Lead.id == lead_id)
+            lead_res = await db.execute(lead_stmt)
+            lead = lead_res.scalars().first()
+            if lead and lead.status != "Converted":
+                lead.status = "Converted"
+                await add_lead_timeline_event(
+                    db,
+                    lead_id=lead_id,
+                    event_type="Converted",
+                    description="Lead converted to candidate via admission form submission.",
+                    created_by="System"
+                )
+                
         await db.flush()
 
         # Log timeline event
@@ -276,12 +294,13 @@ class CandidateService:
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         skip: int = 0,
-        limit: int = 50
+        limit: int = 50,
+        is_deleted: bool = False
     ) -> Dict[str, Any]:
         stmt = select(CandidateApplication)
         count_stmt = select(func.count(CandidateApplication.id))
         
-        conditions = []
+        conditions = [CandidateApplication.is_deleted == is_deleted]
         if status_filter:
             conditions.append(CandidateApplication.application_status == status_filter)
         if course_filter:
@@ -351,6 +370,68 @@ class CandidateService:
             {"id": t.id, "event_type": t.event_type, "description": t.description, "created_by": t.created_by, "created_at": t.created_at} for t in candidate.timeline_events
         ]
         return r_dict
+
+    @classmethod
+    async def soft_delete_application(
+        cls, db: AsyncSession, candidate_id: str, user_email: Optional[str] = "Admin"
+    ) -> bool:
+        stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id, CandidateApplication.is_deleted == False)
+        res = await db.execute(stmt)
+        candidate = res.scalar_one_or_none()
+        if not candidate:
+            return False
+        
+        candidate.is_deleted = True
+        candidate.deleted_at = datetime.utcnow()
+        
+        # Log timeline event
+        await cls.add_timeline_event(
+            db,
+            candidate.id,
+            "Deleted",
+            f"Candidate application moved to trash by {user_email}.",
+            user_email
+        )
+        await db.commit()
+        return True
+
+    @classmethod
+    async def restore_application(
+        cls, db: AsyncSession, candidate_id: str, user_email: Optional[str] = "Admin"
+    ) -> bool:
+        stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id, CandidateApplication.is_deleted == True)
+        res = await db.execute(stmt)
+        candidate = res.scalar_one_or_none()
+        if not candidate:
+            return False
+        
+        candidate.is_deleted = False
+        candidate.deleted_at = None
+        
+        # Log timeline event
+        await cls.add_timeline_event(
+            db,
+            candidate.id,
+            "Restored",
+            f"Candidate application restored from trash by {user_email}.",
+            user_email
+        )
+        await db.commit()
+        return True
+
+    @classmethod
+    async def hard_delete_application(
+        cls, db: AsyncSession, candidate_id: str
+    ) -> bool:
+        stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id)
+        res = await db.execute(stmt)
+        candidate = res.scalar_one_or_none()
+        if not candidate:
+            return False
+        
+        await db.delete(candidate)
+        await db.commit()
+        return True
 
     @classmethod
     async def update_application_status(

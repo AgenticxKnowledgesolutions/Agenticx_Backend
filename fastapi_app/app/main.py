@@ -18,11 +18,16 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
+is_prod = settings.ENVIRONMENT == "production"
+
 app = FastAPI(
     title="AgenticX API",
     description="FastAPI backend for AgenticX Knowledge Solutions",
     version="2.0.0",
     lifespan=lifespan,
+    docs_url=None if is_prod else "/docs",
+    redoc_url=None if is_prod else "/redoc",
+    openapi_url=None if is_prod else "/openapi.json",
 )
 
 app.state.limiter = limiter

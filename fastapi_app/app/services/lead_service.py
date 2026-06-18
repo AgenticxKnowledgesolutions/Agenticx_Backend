@@ -6,6 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, or_, and_, func
 from sqlalchemy.orm import selectinload
 
+from pydantic import BaseModel
+from urllib.parse import urlencode
+from app.services.email_service import EmailService
+from app.core.config import settings
 from app.models.lead import Lead
 from app.models.lead_note import LeadNote
 from app.models.lead_timeline import LeadTimelineEvent
@@ -219,6 +223,32 @@ async def soft_delete_lead(
     await db.commit()
     return True
 
+async def send_lead_qualification_email(db: AsyncSession, lead: Lead):
+    params = {
+        "lead_id": lead.id,
+        "name": lead.name,
+        "email": lead.email
+    }
+    if lead.phone:
+        params["phone"] = lead.phone
+    if lead.interested_course:
+        params["course"] = lead.interested_course
+        
+    frontend_url = settings.FRONTEND_URL or "http://localhost:5173"
+    apply_url = f"{frontend_url.rstrip('/')}/apply?{urlencode(params)}"
+    
+    # Send email
+    sent = EmailService.send_admission_link(lead.email, lead.name, apply_url)
+    
+    # Log timeline event
+    description = f"Generated candidate admission form link: {apply_url}"
+    if sent:
+        description = "Admission form link emailed to student. " + description
+    else:
+        description = "Failed to send email/SMTP not configured. " + description
+        
+    await add_timeline_event(db, lead.id, "Qualified", description, "System")
+
 async def bulk_update_leads(
     db: AsyncSession,
     lead_ids: List[str],
@@ -233,12 +263,18 @@ async def bulk_update_leads(
     for lead in leads:
         changes = []
         if "status" in updates and updates["status"] != lead.status:
-            changes.append(f"Status → {updates['status']}")
-            lead.status = updates["status"]
-            if updates["status"].lower() in ["enrolled", "converted"]:
+            new_status = updates["status"]
+            if new_status == "Converted" and lead.status != "Qualified":
+                raise ValueError("Only qualified leads can be converted.")
+            changes.append(f"Status → {new_status}")
+            lead.status = new_status
+            if new_status.lower() in ["enrolled", "converted"]:
                 await add_timeline_event(db, lead.id, "Converted", f"Lead converted to enrollment via bulk operation", user_email)
+            elif new_status.lower() == "qualified":
+                await add_timeline_event(db, lead.id, "Status Updated", f"Status changed to {new_status} via bulk operation", user_email)
+                await send_lead_qualification_email(db, lead)
             else:
-                await add_timeline_event(db, lead.id, "Status Updated", f"Status changed to {updates['status']} via bulk operation", user_email)
+                await add_timeline_event(db, lead.id, "Status Updated", f"Status changed to {new_status} via bulk operation", user_email)
 
         if "priority" in updates and updates["priority"] != lead.priority:
             changes.append(f"Priority → {updates['priority']}")
@@ -486,9 +522,14 @@ async def update_lead(db: AsyncSession, lead_id: str, data: LeadUpdate) -> Optio
         if old_val != value:
             setattr(lead, key, value)
             if key == "status":
+                if value == "Converted" and lead.status != "Qualified":
+                    raise ValueError("Only qualified leads can be converted.")
                 changes.append(f"Status → {value}")
                 if value.lower() in ["enrolled", "converted"]:
                     await add_timeline_event(db, lead.id, "Converted", f"Lead converted to enrollment", "Admin")
+                elif value.lower() == "qualified":
+                    await add_timeline_event(db, lead.id, "Status Updated", f"Status changed to {value}", "Admin")
+                    await send_lead_qualification_email(db, lead)
                 else:
                     await add_timeline_event(db, lead.id, "Status Updated", f"Status changed to {value}", "Admin")
             elif key == "priority":

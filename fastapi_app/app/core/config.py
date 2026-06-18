@@ -12,6 +12,14 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str = ""
     SUPABASE_SERVICE_KEY: str = ""
 
+    # SMTP
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""
+    FRONTEND_URL: str = "https://www.agenticx.co.in"
+
     # JWT
     SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 120
@@ -25,7 +33,6 @@ class Settings(BaseSettings):
     APP_NAME: str = "agenticx-backend"
     APP_VERSION: str = "1.0.0"
     ENVIRONMENT: str = "production"
-    FRONTEND_URL: str | None = None
 
     @property
     def cors_origins_list(self) -> List[str]:

@@ -38,6 +38,7 @@ async def list_candidates(
     end_date: Optional[datetime] = None,
     skip: int = 0,
     limit: int = 50,
+    is_deleted: bool = Query(False, alias="is_deleted"),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin)
 ):
@@ -51,7 +52,8 @@ async def list_candidates(
         start_date=start_date,
         end_date=end_date,
         skip=skip,
-        limit=limit
+        limit=limit,
+        is_deleted=is_deleted
     )
 
 @router.get("/import/history")
@@ -216,3 +218,39 @@ async def process_import(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error processing import: {str(e)}"
         )
+
+@router.delete("/{id}")
+async def soft_delete_candidate(
+    id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin: soft delete (trash) candidate application."""
+    success = await CandidateService.soft_delete_application(db, id, user_email=current_user.email)
+    if not success:
+        raise HTTPException(status_code=404, detail="Candidate not found or already in trash")
+    return {"success": True, "detail": "Candidate moved to trash"}
+
+@router.post("/{id}/restore")
+async def restore_candidate(
+    id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin: restore a soft-deleted candidate application."""
+    success = await CandidateService.restore_application(db, id, user_email=current_user.email)
+    if not success:
+        raise HTTPException(status_code=404, detail="Candidate not found in trash")
+    return {"success": True, "detail": "Candidate restored from trash"}
+
+@router.delete("/{id}/permanent")
+async def permanent_delete_candidate(
+    id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin)
+):
+    """Admin: permanently delete candidate application from database."""
+    success = await CandidateService.hard_delete_application(db, id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return {"success": True, "detail": "Candidate permanently deleted"}

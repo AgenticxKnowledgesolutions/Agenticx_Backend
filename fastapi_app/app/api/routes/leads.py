@@ -100,10 +100,13 @@ async def update_lead(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    updated = await lead_service.update_lead(db, lead_id, data)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Lead not found")
-    return updated
+    try:
+        updated = await lead_service.update_lead(db, lead_id, data)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        return updated
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.delete("/{lead_id}", status_code=status.HTTP_200_OK)
@@ -124,10 +127,13 @@ async def bulk_update_leads(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    count = await lead_service.bulk_update_leads(
-        db, lead_ids=payload.ids, updates=payload.updates, user_email=current_user.email
-    )
-    return {"detail": f"Successfully updated {count} leads"}
+    try:
+        count = await lead_service.bulk_update_leads(
+            db, lead_ids=payload.ids, updates=payload.updates, user_email=current_user.email
+        )
+        return {"detail": f"Successfully updated {count} leads"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/bulk-delete", status_code=status.HTTP_200_OK)

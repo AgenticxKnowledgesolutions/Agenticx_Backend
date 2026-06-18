@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import decode_token
@@ -6,12 +6,14 @@ from app.schemas.auth import LoginRequest, TokenResponse, RefreshRequest, UserRe
 from app.services import auth_service
 from app.deps import get_current_user
 from app.models.user import User
+from app.core.limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends(get_db)):
     user = await auth_service.authenticate_user(db, data.email, data.password)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
