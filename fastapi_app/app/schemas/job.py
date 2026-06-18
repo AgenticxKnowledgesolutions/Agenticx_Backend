@@ -48,7 +48,6 @@ class JobCreate(JobBase):
 class JobResponse(JobBase):
     id: str
     created_at: datetime
-    applications: List[JobApplicationResponse] = []
 
     class Config:
         from_attributes = True
