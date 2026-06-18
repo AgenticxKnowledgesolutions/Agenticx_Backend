@@ -61,7 +61,6 @@ async def validate_conversion_token(
         "email": lead.email,
         "phone": lead.phone or "",
         "course": lead.interested_course or "",
-        "lead_id": lead.id,
     }
 
 @router.post("/apply", status_code=status.HTTP_201_CREATED)
@@ -104,9 +103,10 @@ async def apply_candidate(
             db, payload, created_by="Website Form"
         )
 
-        # Mark token as used AFTER successful candidate creation
+        # Mark token as used and delete/invalidate it AFTER successful candidate creation
         if resolved_lead_token:
             resolved_lead_token.used = True
+            await db.delete(resolved_lead_token)
             await db.commit()
 
         return {"success": True, "application_number": candidate.application_number, "id": candidate.id}

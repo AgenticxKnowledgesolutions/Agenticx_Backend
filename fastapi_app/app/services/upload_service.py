@@ -88,4 +88,26 @@ class UploadService:
                     detail=f"Storage upload request failed: {str(e)}"
                 )
 
+    async def delete_file(self, file_path_or_url: str) -> bool:
+        """
+        Deletes a file from Supabase Storage.
+        Accepts either the full public URL or the relative file path.
+        """
+        prefix = f"{self.supabase_url}/storage/v1/object/public/{self.bucket_name}/"
+        if file_path_or_url.startswith(prefix):
+            file_path = file_path_or_url[len(prefix):]
+        else:
+            file_path = file_path_or_url.strip("/")
+
+        async with httpx.AsyncClient() as client:
+            try:
+                res = await client.delete(
+                    f"{self.supabase_url}/storage/v1/object/{self.bucket_name}/{file_path}",
+                    headers=self.headers
+                )
+                return res.status_code == 200
+            except Exception as e:
+                print(f"Failed to delete file {file_path}: {e}")
+                return False
+
 upload_service = UploadService()
