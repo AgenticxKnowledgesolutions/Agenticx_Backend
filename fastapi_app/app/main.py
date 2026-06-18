@@ -35,6 +35,7 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 
 # CORS — allow React dev server and production origin
+print("Loaded CORS Origins:", settings.cors_origins_list)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
