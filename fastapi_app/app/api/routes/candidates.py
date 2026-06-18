@@ -1,5 +1,6 @@
 import json
 from fastapi import APIRouter, Depends, status, HTTPException, UploadFile, File, Form, Query
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List, Dict
 from datetime import datetime
@@ -10,18 +11,104 @@ from app.services.candidate_service import CandidateService
 from app.deps import require_admin
 from app.models.user import User
 from app.models.admin_notification import AdminNotification
+from app.models.lead_token import LeadToken
+from app.models.lead import Lead
 from sqlalchemy import select, update
 
 router = APIRouter(prefix="/candidates", tags=["candidates"])
+optional_bearer = HTTPBearer(auto_error=False)
+
+
+@router.get("/validate-token")
+async def validate_conversion_token(
+    token: str = Query(..., description="Single-use conversion token from email link"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Public: validate a single-use lead conversion token and return lead details.
+    
+    Returns lead name, email, phone, course for pre-filling the apply form.
+    Returns 400 if the token is not found or has already been used.
+    """
+    stmt = select(LeadToken).where(LeadToken.token == token)
+    result = await db.execute(stmt)
+    lead_token = result.scalar_one_or_none()
+
+    if not lead_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired application link. Please contact the admissions office."
+        )
+    if lead_token.used:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This application link has already been used. Each link can only be used once."
+        )
+
+    # Fetch associated lead details for pre-filling the form
+    lead_stmt = select(Lead).where(Lead.id == lead_token.lead_id)
+    lead_res = await db.execute(lead_stmt)
+    lead = lead_res.scalar_one_or_none()
+
+    if not lead:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Associated lead record not found."
+        )
+
+    return {
+        "valid": True,
+        "name": lead.name,
+        "email": lead.email,
+        "phone": lead.phone or "",
+        "course": lead.interested_course or "",
+        "lead_id": lead.id,
+    }
 
 @router.post("/apply", status_code=status.HTTP_201_CREATED)
 async def apply_candidate(
     data: CandidateCreate,
     db: AsyncSession = Depends(get_db)
 ):
-    """Public: submit a candidate application form."""
+    """Public: submit a candidate application form.
+    
+    If a 'token' field is present in the payload, validates it as a single-use
+    conversion token, links lead_id, and marks the token as used on success.
+    """
+    token_value = data.token  # Optional[str]
+    resolved_lead_token = None
+
+    if token_value:
+        # Validate the token
+        stmt = select(LeadToken).where(LeadToken.token == token_value)
+        result = await db.execute(stmt)
+        resolved_lead_token = result.scalar_one_or_none()
+
+        if not resolved_lead_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid application link. Please contact the admissions office."
+            )
+        if resolved_lead_token.used:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This application link has already been used."
+            )
+
     try:
-        candidate = await CandidateService.create_candidate_application(db, data.model_dump(), created_by="Website Form")
+        payload = data.model_dump()
+        # If token was valid, link lead_id from token (authoritative source)
+        if resolved_lead_token:
+            payload["lead_id"] = resolved_lead_token.lead_id
+
+        candidate = await CandidateService.create_candidate_application(
+            db, payload, created_by="Website Form"
+        )
+
+        # Mark token as used AFTER successful candidate creation
+        if resolved_lead_token:
+            resolved_lead_token.used = True
+            await db.commit()
+
         return {"success": True, "application_number": candidate.application_number, "id": candidate.id}
     except HTTPException as e:
         raise e
@@ -132,9 +219,24 @@ async def upload_candidate_document(
     doc_type: str = Query(..., description="Document type: cv, photo, aadhaar, college-id, confirmation-letter"),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_bearer)
 ):
     """Admin/Public: Upload candidate documents (CV, photo, Aadhaar, college ID, confirmation letter)."""
+    user_email = "Website Form"
+    if credentials:
+        try:
+            from app.core.security import decode_token
+            from app.services.auth_service import get_user_by_id
+            token = credentials.credentials
+            payload = decode_token(token)
+            user_id: str = payload.get("sub", "")
+            if user_id and payload.get("type") == "access":
+                user = await get_user_by_id(db, user_id)
+                if user and user.is_active and user.role.value == "admin":
+                    user_email = user.email
+        except Exception:
+            pass
+
     # Size checks: 5MB for images, 20MB for PDFs
     content = await file.read()
     max_size = 20 * 1024 * 1024 if doc_type == "cv" or file.content_type == "application/pdf" else 5 * 1024 * 1024
@@ -145,7 +247,7 @@ async def upload_candidate_document(
         )
 
     candidate = await CandidateService.upload_document(
-        db, id, doc_type, content, file.filename or "", file.content_type or "application/octet-stream", user_email=current_user.email
+        db, id, doc_type, content, file.filename or "", file.content_type or "application/octet-stream", user_email=user_email
     )
     # Get public URL
     field_mapping = {

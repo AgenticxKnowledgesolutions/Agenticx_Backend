@@ -1,5 +1,7 @@
+import uuid
 from fastapi import APIRouter, Depends, status, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import List, Optional
 
 from app.core.database import get_db
@@ -13,6 +15,7 @@ from app.services import lead_service
 from app.deps import require_admin
 from app.models.user import User
 from app.models.lead import Lead
+from app.models.lead_token import LeadToken
 from app.core.limiter import limiter
 
 router = APIRouter(prefix="/leads", tags=["leads"])
@@ -198,3 +201,51 @@ async def hard_delete_lead(
         raise HTTPException(status_code=404, detail="Lead not found")
     await lead_service.hard_delete_lead(db, lead)
     return {"detail": "Lead permanently deleted"}
+
+
+@router.post("/{lead_id}/conversion-token", status_code=status.HTTP_201_CREATED)
+async def create_conversion_token(
+    lead_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Admin: generate a secure single-use token for lead-to-candidate conversion.
+    
+    Validates the lead is in 'qualified' status, stores the token in the DB,
+    and updates the lead status to 'converted'.
+    Returns the token for inclusion in the email link.
+    """
+    lead = await lead_service.get_lead_by_id(db, lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if lead.status.lower() != "qualified":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only leads with 'qualified' status can be converted"
+        )
+    if not lead.email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Lead must have an email address to be converted"
+        )
+
+    # Generate and store the one-time token
+    secure_token = str(uuid.uuid4())
+    lead_token = LeadToken(
+        id=str(uuid.uuid4()),
+        lead_id=lead_id,
+        token=secure_token,
+        used=False,
+    )
+    db.add(lead_token)
+
+    # Update lead status to converted
+    from app.schemas.lead import LeadUpdate
+    await lead_service.update_lead(
+        db, lead_id,
+        LeadUpdate(status="converted")
+    )
+
+    await db.commit()
+
+    return {"token": secure_token}

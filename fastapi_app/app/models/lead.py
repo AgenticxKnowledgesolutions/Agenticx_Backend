@@ -44,4 +44,5 @@ class Lead(Base):
     notes: Mapped[list["LeadNote"]] = relationship("LeadNote", back_populates="lead", cascade="all, delete-orphan", order_by="desc(LeadNote.created_at)")
     timeline_events: Mapped[list["LeadTimelineEvent"]] = relationship("LeadTimelineEvent", back_populates="lead", cascade="all, delete-orphan", order_by="desc(LeadTimelineEvent.created_at)")
     interactions: Mapped[list["LeadInteraction"]] = relationship("LeadInteraction", back_populates="lead", cascade="all, delete-orphan", order_by="desc(LeadInteraction.created_at)")
+    tokens: Mapped[list["LeadToken"]] = relationship("LeadToken", back_populates="lead", cascade="all, delete-orphan")
 

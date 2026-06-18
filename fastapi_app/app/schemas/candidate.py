@@ -26,6 +26,8 @@ class CandidateCreate(BaseModel):
     remarks: Optional[str] = None
     lead_id: Optional[str] = None
     next_followup_at: Optional[datetime] = None
+    # Single-use conversion token from email link (replaces plain lead_id in URL)
+    token: Optional[str] = Field(None, max_length=255)
 
 
 class CandidateStatusUpdate(BaseModel):
