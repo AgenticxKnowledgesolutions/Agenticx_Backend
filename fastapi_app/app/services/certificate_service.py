@@ -1,6 +1,9 @@
 import uuid
 import urllib.parse
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 import httpx
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -89,20 +92,24 @@ def get_ordinal_suffix(day: int) -> str:
 
 
 def build_qr_image_from_url(verification_url: str):
-    qr = qrcode.QRCode(
-        version=2,
-        error_correction=qrcode.constants.ERROR_CORRECT_M,
-        box_size=10,
-        border=2,
-    )
-    qr.add_data(verification_url)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="#16263F", back_color="white")
+    try:
+        qr = qrcode.QRCode(
+            version=2,
+            error_correction=qrcode.constants.ERROR_CORRECT_M,
+            box_size=10,
+            border=2,
+        )
+        qr.add_data(verification_url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="#16263F", back_color="white")
 
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return ImageReader(buf)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        return ImageReader(buf)
+    except Exception as e:
+        logger.error(f"Failed to generate QR code for URL {verification_url}: {e}", exc_info=True)
+        return None
 
 
 def draw_wrapped_text(c, text, x, y, max_width, font="Helvetica", size=11,
@@ -383,21 +390,24 @@ class CertificateService:
 
         # ===================== QR verification block (replaces seal) =====================
         qr_img = build_qr_image_from_url(verification_url)
-        qr_size = 26 * mm
-        qr_x = margin
-        qr_y = 34 * mm
+        if qr_img is not None:
+            qr_size = 26 * mm
+            qr_x = margin
+            qr_y = 34 * mm
 
-        c.setStrokeColor(HAIRLINE)
-        c.setLineWidth(0.6)
-        c.roundRect(qr_x - 4 * mm, qr_y - 9 * mm, qr_size + 8 * mm, qr_size + 14 * mm, 2 * mm, fill=0, stroke=1)
-        c.drawImage(qr_img, qr_x, qr_y, width=qr_size, height=qr_size)
+            c.setStrokeColor(HAIRLINE)
+            c.setLineWidth(0.6)
+            c.roundRect(qr_x - 4 * mm, qr_y - 9 * mm, qr_size + 8 * mm, qr_size + 14 * mm, 2 * mm, fill=0, stroke=1)
+            c.drawImage(qr_img, qr_x, qr_y, width=qr_size, height=qr_size)
 
-        c.setFont("Helvetica-Bold", 7.5)
-        c.setFillColor(NAVY)
-        c.drawString(qr_x - 4 * mm + 2 * mm, qr_y - 5 * mm, "Scan to verify")
-        c.setFont("Helvetica", 7)
-        c.setFillColor(GREY_TEXT)
-        c.drawString(qr_x - 4 * mm + 2 * mm, qr_y - 8.5 * mm, f"ID: {data['certificateId']}")
+            c.setFont("Helvetica-Bold", 7.5)
+            c.setFillColor(NAVY)
+            c.drawString(qr_x - 4 * mm + 2 * mm, qr_y - 5 * mm, "Scan to verify")
+            c.setFont("Helvetica", 7)
+            c.setFillColor(GREY_TEXT)
+            c.drawString(qr_x - 4 * mm + 2 * mm, qr_y - 8.5 * mm, f"ID: {data['certificateId']}")
+        else:
+            logger.warning("Skipping QR code rendering due to generation failure.")
 
         # ===================== Signature block =====================
         sig_x = width - margin - 60 * mm
