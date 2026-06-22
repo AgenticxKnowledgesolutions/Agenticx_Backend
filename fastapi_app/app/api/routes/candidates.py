@@ -195,7 +195,14 @@ async def update_status(
 ):
     """Admin: update candidate application status."""
     candidate = await CandidateService.update_application_status(
-        db, id, payload.status, remarks=payload.remarks, user_email=current_user.email
+        db,
+        id,
+        payload.status,
+        remarks=payload.remarks,
+        course_start_date=payload.course_start_date,
+        completed_at=payload.completed_at,
+        course_duration=payload.course_duration,
+        user_email=current_user.email
     )
     return {"success": True, "status": candidate.application_status}
 

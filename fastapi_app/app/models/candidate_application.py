@@ -62,6 +62,14 @@ class CandidateApplication(Base):
     college_id_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     confirmation_letter_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     
+    # Certificate Fields
+    certificate_id: Mapped[str | None] = mapped_column(String(36), unique=True, index=True, nullable=True)
+    certificate_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    certificate_status: Mapped[str | None] = mapped_column(String(50), default="pending", nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    course_start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    course_duration: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    
     # Import references
     import_batch_id: Mapped[str | None] = mapped_column(String, ForeignKey("candidate_import_batches.id"), nullable=True)
     import_tag: Mapped[str | None] = mapped_column(String(255), nullable=True)

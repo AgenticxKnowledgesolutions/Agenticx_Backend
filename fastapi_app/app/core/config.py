@@ -43,7 +43,28 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> Settings:
-    return Settings()
+    s = Settings()
+    try:
+        import socket
+        from urllib.parse import urlparse, urlunparse
+        parsed = urlparse(s.DATABASE_URL)
+        if parsed.hostname:
+            # Check if it's not already an IP address
+            try:
+                socket.inet_aton(parsed.hostname)
+            except socket.error:
+                # Resolve hostname to IPv4
+                ip = socket.gethostbyname(parsed.hostname)
+                netloc = parsed.netloc
+                # If there's a port, handle it properly
+                if parsed.port:
+                    netloc = netloc.replace(f"{parsed.hostname}:{parsed.port}", f"{ip}:{parsed.port}")
+                else:
+                    netloc = netloc.replace(parsed.hostname, ip)
+                s.DATABASE_URL = urlunparse(parsed._replace(netloc=netloc))
+    except Exception as e:
+        print(f"Warning: Failed to resolve database hostname to IPv4: {e}")
+    return s
 
 
 settings = get_settings()

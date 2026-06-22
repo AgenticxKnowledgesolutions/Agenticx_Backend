@@ -435,7 +435,15 @@ class CandidateService:
 
     @classmethod
     async def update_application_status(
-        cls, db: AsyncSession, candidate_id: str, new_status: str, remarks: Optional[str] = None, user_email: Optional[str] = "Admin"
+        cls,
+        db: AsyncSession,
+        candidate_id: str,
+        new_status: str,
+        remarks: Optional[str] = None,
+        course_start_date: Optional[datetime] = None,
+        completed_at: Optional[datetime] = None,
+        course_duration: Optional[str] = None,
+        user_email: Optional[str] = "Admin"
     ) -> CandidateApplication:
         stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id)
         res = await db.execute(stmt)
@@ -447,6 +455,15 @@ class CandidateService:
         candidate.application_status = new_status
         if remarks:
             candidate.remarks = remarks
+
+        # Update course start/end dates and duration
+        if course_start_date is not None:
+            candidate.course_start_date = course_start_date
+        if completed_at is not None:
+            candidate.completed_at = completed_at
+        if course_duration is not None:
+            candidate.course_duration = course_duration
+
         candidate.updated_at = datetime.utcnow()
 
         # Add timeline event
@@ -454,6 +471,12 @@ class CandidateService:
         if remarks:
             desc += f" Remarks: {remarks}"
         await cls.add_timeline_event(db, candidate.id, new_status, desc, user_email)
+
+        # Trigger certificate generation if status updated to Completed
+        if new_status.lower() == "completed" and candidate.certificate_status != "generated":
+            from app.services.certificate_service import certificate_service
+            await certificate_service.generate_and_save_certificate(db, candidate)
+
         await db.commit()
         await db.refresh(candidate)
         return candidate
