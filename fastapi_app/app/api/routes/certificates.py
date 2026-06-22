@@ -31,44 +31,29 @@ async def fetch_certificate(
 
     Rate-limited to prevent brute forcing.
     """
+    email = payload.email.strip().lower()
     try:
         # Parse the expected dob format YYYY-MM-DD
-        dob_date = datetime.strptime(payload.dob, "%Y-%m-%d").date()
+        dob = datetime.strptime(payload.dob, "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid date of birth format. Must be YYYY-MM-DD.",
         )
 
-    # Search for candidate by email (case-insensitive)
+    # Search for candidate by date of birth and email (comparing only date portion and lowercase email)
     stmt = select(CandidateApplication).where(
-        func.lower(CandidateApplication.email) == payload.email.lower()
+        func.date(CandidateApplication.date_of_birth) == dob,
+        func.lower(CandidateApplication.email) == email,
+        CandidateApplication.certificate_status == "generated"
     )
     res = await db.execute(stmt)
-    candidates = res.scalars().all()
-
-    # Find the candidate matching the parsed date of birth
-    matched_candidate = None
-    from datetime import timedelta
-    for candidate in candidates:
-        if candidate.date_of_birth:
-            utc_date = candidate.date_of_birth.date()
-            ist_date = (candidate.date_of_birth + timedelta(hours=5, minutes=30)).date()
-            if utc_date == dob_date or ist_date == dob_date:
-                matched_candidate = candidate
-                break
+    matched_candidate = res.scalar_one_or_none()
 
     if not matched_candidate:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No candidate matches the provided email and date of birth.",
-        )
-
-    # Check if a certificate has been generated
-    if matched_candidate.certificate_status != "generated":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No certificate has been generated for this candidate yet.",
         )
 
     # Format completed date nicely

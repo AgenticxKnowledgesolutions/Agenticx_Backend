@@ -211,18 +211,9 @@ class CandidateService:
     @staticmethod
     async def add_timeline_event(
         db: AsyncSession, candidate_id: str, event_type: str, description: str, created_by: Optional[str] = "Admin"
-    ) -> CandidateTimelineEvent:
-        event = CandidateTimelineEvent(
-            id=str(uuid.uuid4()),
-            candidate_id=candidate_id,
-            event_type=event_type,
-            description=description,
-            created_by=created_by,
-            created_at=datetime.utcnow()
-        )
-        db.add(event)
-        await db.flush()
-        return event
+    ) -> Optional[CandidateTimelineEvent]:
+        # Disabled: Timeline Events feature removed
+        return None
 
     @staticmethod
     async def add_candidate_note(
