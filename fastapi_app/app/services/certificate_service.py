@@ -310,7 +310,7 @@ class CertificateService:
         date_str = comp_date.strftime("%B %d, %Y")
 
         # Format verification URL
-        verification_raw_url = f"{settings.FRONTEND_URL.rstrip('/')}/verify/{candidate.certificate_id}"
+        verification_raw_url = f"{settings.CERTIFICATE_FRONTEND_URL.rstrip('/')}/verify/{candidate.certificate_id}"
         verification_encoded_url = urllib.parse.quote_plus(verification_raw_url)
 
         # Format duration string (e.g. "3-Month " or "intensive ")

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_FROM: str = ""
     FRONTEND_URL: str = "https://www.agenticx.co.in"
+    CERTIFICATE_FRONTEND_URL: str = "https://certificate.agenticx.co.in"
 
     # JWT
     SECRET_KEY: str
@@ -27,7 +28,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
 
     # CORS
-    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000,https://agenticx.co.in,https://www.agenticx.co.in,https://agenticx-co-in.vercel.app"
+    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000,https://agenticx.co.in,https://www.agenticx.co.in,https://agenticx-co-in.vercel.app,https://certificate.agenticx.co.in"
 
     # App Settings
     APP_NAME: str = "agenticx-backend"
