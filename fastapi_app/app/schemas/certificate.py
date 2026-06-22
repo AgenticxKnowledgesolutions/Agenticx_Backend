@@ -21,3 +21,4 @@ class CertificateVerifyResponse(BaseModel):
     status: str = Field(..., description="Verification status (valid | revoked)")
     completion_date: str = Field(..., description="Date of certificate completion")
     certificate_url: Optional[str] = Field(None, description="Link to download the certificate PDF for verification")
+    certificate_id: Optional[str] = Field(None, description="Certificate application number (CAF format)")

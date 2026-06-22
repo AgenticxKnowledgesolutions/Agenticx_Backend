@@ -36,6 +36,8 @@ class CandidateStatusUpdate(BaseModel):
     course_start_date: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     course_duration: Optional[str] = None
+    performance: Optional[str] = None
+    course_applied: Optional[str] = None
 
 
 class CandidateNoteCreate(BaseModel):

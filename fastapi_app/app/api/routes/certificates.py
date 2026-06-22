@@ -4,7 +4,7 @@ import httpx
 from fastapi import APIRouter, Depends, status, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 
 from app.core.database import get_db
 from app.core.limiter import limiter
@@ -46,7 +46,7 @@ async def fetch_certificate(
     stmt = select(CandidateApplication).where(
         func.date(CandidateApplication.date_of_birth) == dob,
         func.lower(CandidateApplication.email) == email,
-        CandidateApplication.certificate_status == "generated"
+        CandidateApplication.certificate_status == "valid"
     )
     res = await db.execute(stmt)
     matched_candidate = res.scalar_one_or_none()
@@ -69,7 +69,7 @@ async def fetch_certificate(
         course=matched_candidate.course_applied or "Professional Certification Program",
         completion_date=date_str,
         certificate_url=matched_candidate.certificate_url or "",
-        certificate_id=matched_candidate.certificate_id or "",
+        certificate_id=matched_candidate.application_number or matched_candidate.certificate_id or "",
     )
 
 @router.get("/verify", response_model=CertificateVerifyResponse)
@@ -95,7 +95,10 @@ async def verify_certificate_by_token(
         )
 
     stmt = select(CandidateApplication).where(
-        CandidateApplication.certificate_id == certificate_id
+        or_(
+            CandidateApplication.certificate_id == certificate_id,
+            CandidateApplication.application_number == certificate_id
+        )
     )
     res = await db.execute(stmt)
     candidate = res.scalar_one_or_none()
@@ -106,7 +109,7 @@ async def verify_certificate_by_token(
             detail="Certificate verification failed: Invalid certificate ID.",
         )
 
-    status_val = "valid" if candidate.certificate_status == "generated" else "revoked"
+    status_val = "valid" if candidate.certificate_status == "valid" else "revoked"
     date_str = (
         candidate.completed_at.strftime("%B %d, %Y")
         if candidate.completed_at
@@ -119,6 +122,7 @@ async def verify_certificate_by_token(
         status=status_val,
         completion_date=date_str,
         certificate_url=candidate.certificate_url,
+        certificate_id=candidate.application_number or candidate.certificate_id,
     )
 
 
@@ -127,9 +131,12 @@ async def verify_certificate(
     certificate_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Public verification endpoint to authenticate a certificate using its UUID/ID."""
+    """Public verification endpoint to authenticate a certificate using its UUID/ID or application number."""
     stmt = select(CandidateApplication).where(
-        CandidateApplication.certificate_id == certificate_id
+        or_(
+            CandidateApplication.certificate_id == certificate_id,
+            CandidateApplication.application_number == certificate_id
+        )
     )
     res = await db.execute(stmt)
     candidate = res.scalar_one_or_none()
@@ -141,7 +148,7 @@ async def verify_certificate(
         )
 
     # Formulate status value based on DB status field
-    status_val = "valid" if candidate.certificate_status == "generated" else "revoked"
+    status_val = "valid" if candidate.certificate_status == "valid" else "revoked"
     date_str = (
         candidate.completed_at.strftime("%B %d, %Y")
         if candidate.completed_at
@@ -154,6 +161,7 @@ async def verify_certificate(
         status=status_val,
         completion_date=date_str,
         certificate_url=candidate.certificate_url,
+        certificate_id=candidate.application_number or candidate.certificate_id,
     )
 
 

@@ -434,6 +434,8 @@ class CandidateService:
         course_start_date: Optional[datetime] = None,
         completed_at: Optional[datetime] = None,
         course_duration: Optional[str] = None,
+        performance: Optional[str] = None,
+        course_applied: Optional[str] = None,
         user_email: Optional[str] = "Admin"
     ) -> CandidateApplication:
         try:
@@ -458,6 +460,10 @@ class CandidateService:
                 candidate.completed_at = completed_at
             if course_duration is not None:
                 candidate.course_duration = course_duration
+            if performance is not None:
+                candidate.performance = performance
+            if course_applied is not None:
+                candidate.course_applied = course_applied
 
             candidate.updated_at = datetime.utcnow()
 
@@ -472,7 +478,7 @@ class CandidateService:
             await db.refresh(candidate)
 
             # Trigger certificate generation if status updated to Completed
-            if status_val == "completed" and candidate.certificate_status != "generated":
+            if status_val == "completed" and candidate.certificate_status != "valid":
                 try:
                     # Validate required fields
                     if not candidate.full_name:

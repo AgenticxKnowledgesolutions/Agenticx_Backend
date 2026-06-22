@@ -192,7 +192,7 @@ class CertificateService:
 
         # Map candidate details to template data format
         data = {
-            "certificateId": candidate.certificate_id,
+            "certificateId": candidate.application_number or candidate.certificate_id,
             "issueDate": issue_date_str,
             "recipientName": candidate.full_name,
             "gender": candidate.gender or "other",
@@ -206,6 +206,7 @@ class CertificateService:
             "endDate": comp_date.strftime("%d/%m/%Y"),
             "completionDate": completion_date_str,
             "conductRemark": conduct_remark,
+            "performance": candidate.performance,
         }
 
         # Draw PDF using ReportLab in-memory
@@ -353,7 +354,7 @@ class CertificateService:
 
         y = panel_top - panel_height - 10 * mm
 
-        # ===================== Conduct remark =====================
+        # ===================== Conduct & Performance remark =====================
         c.setFont("Helvetica", 11)
         c.setFillColor(DARK_TEXT)
         conduct_line = f"{pronoun['possessive']} conduct and character during the period with us were "
@@ -362,6 +363,18 @@ class CertificateService:
         c.setFont("Helvetica-Bold", 11)
         c.setFillColor(TEAL)
         c.drawString(margin + cw, y, f"{data['conductRemark']}.")
+
+        if data.get("performance"):
+            y -= 5.5 * mm
+            c.setFont("Helvetica", 11)
+            c.setFillColor(DARK_TEXT)
+            perf_line = "Performance during the period was "
+            c.drawString(margin, y, perf_line)
+            pcw = c.stringWidth(perf_line, "Helvetica", 11)
+            c.setFont("Helvetica-Bold", 11)
+            c.setFillColor(TEAL)
+            perf_val = data["performance"].strip().capitalize()
+            c.drawString(margin + pcw, y, f"{perf_val}.")
 
         y -= 9 * mm
         c.setFont("Helvetica", 11)
@@ -428,7 +441,7 @@ class CertificateService:
 
             # Update candidate attributes
             candidate.certificate_url = public_url
-            candidate.certificate_status = "generated"
+            candidate.certificate_status = "valid"
             candidate.updated_at = datetime.utcnow()
             
             return candidate

@@ -202,6 +202,8 @@ async def update_status(
         course_start_date=payload.course_start_date,
         completed_at=payload.completed_at,
         course_duration=payload.course_duration,
+        performance=payload.performance,
+        course_applied=payload.course_applied,
         user_email=current_user.email
     )
     return {"success": True, "status": candidate.application_status}
