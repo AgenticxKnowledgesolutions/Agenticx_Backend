@@ -436,41 +436,67 @@ class CandidateService:
         course_duration: Optional[str] = None,
         user_email: Optional[str] = "Admin"
     ) -> CandidateApplication:
-        stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id)
-        res = await db.execute(stmt)
-        candidate = res.scalar_one_or_none()
-        if not candidate:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
+        try:
+            stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id)
+            res = await db.execute(stmt)
+            candidate = res.scalar_one_or_none()
+            if not candidate:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
 
-        old_status = candidate.application_status
-        candidate.application_status = new_status
-        if remarks:
-            candidate.remarks = remarks
+            # Lowercase incoming status
+            status_val = new_status.lower()
+            old_status = candidate.application_status
+            candidate.application_status = status_val
+            
+            if remarks:
+                candidate.remarks = remarks
 
-        # Update course start/end dates and duration
-        if course_start_date is not None:
-            candidate.course_start_date = course_start_date
-        if completed_at is not None:
-            candidate.completed_at = completed_at
-        if course_duration is not None:
-            candidate.course_duration = course_duration
+            # Update course start/end dates and duration
+            if course_start_date is not None:
+                candidate.course_start_date = course_start_date
+            if completed_at is not None:
+                candidate.completed_at = completed_at
+            if course_duration is not None:
+                candidate.course_duration = course_duration
 
-        candidate.updated_at = datetime.utcnow()
+            candidate.updated_at = datetime.utcnow()
 
-        # Add timeline event
-        desc = f"Application status changed from '{old_status}' to '{new_status}'."
-        if remarks:
-            desc += f" Remarks: {remarks}"
-        await cls.add_timeline_event(db, candidate.id, new_status, desc, user_email)
+            # Add timeline event
+            desc = f"Application status changed from '{old_status}' to '{status_val}'."
+            if remarks:
+                desc += f" Remarks: {remarks}"
+            await cls.add_timeline_event(db, candidate.id, status_val, desc, user_email)
 
-        # Trigger certificate generation if status updated to Completed
-        if new_status.lower() == "completed" and candidate.certificate_status != "generated":
-            from app.services.certificate_service import certificate_service
-            await certificate_service.generate_and_save_certificate(db, candidate)
+            # Update DB FIRST and commit status change
+            await db.commit()
+            await db.refresh(candidate)
 
-        await db.commit()
-        await db.refresh(candidate)
-        return candidate
+            # Trigger certificate generation if status updated to Completed
+            if status_val == "completed" and candidate.certificate_status != "generated":
+                try:
+                    # Validate required fields
+                    if not candidate.full_name:
+                        raise Exception("Missing name")
+                    if not candidate.course_applied:
+                        raise Exception("Missing course")
+                    if not candidate.date_of_birth:
+                        raise Exception("Missing DOB")
+
+                    from app.services.certificate_service import certificate_service
+                    await certificate_service.generate_and_save_certificate(db, candidate)
+                    await db.commit()
+                    await db.refresh(candidate)
+                except Exception as ce:
+                    print("CERTIFICATE ERROR:", str(ce))
+                    # DO NOT break status update
+
+            return candidate
+        except HTTPException:
+            # Re-raise standard FastAPI HTTPExceptions
+            raise
+        except Exception as e:
+            print("STATUS UPDATE ERROR:", str(e))
+            raise HTTPException(status_code=500, detail=str(e))
 
     # -------------------------------------------------------------
     # Excel/CSV Import Parser Methods
