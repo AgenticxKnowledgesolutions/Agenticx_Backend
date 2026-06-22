@@ -16,6 +16,7 @@ from app.schemas.certificate import (
     CertificateFetchResponse,
     CertificateVerifyResponse,
 )
+from app.core.security import verify_certificate_token
 
 router = APIRouter(prefix="/certificates", tags=["certificates"])
 
@@ -69,6 +70,55 @@ async def fetch_certificate(
         completion_date=date_str,
         certificate_url=matched_candidate.certificate_url or "",
         certificate_id=matched_candidate.certificate_id or "",
+    )
+
+@router.get("/verify", response_model=CertificateVerifyResponse)
+async def verify_certificate_by_token(
+    token: str | None = None,
+    certId: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Public verification endpoint to authenticate a certificate using a secure signed JWT token or certId."""
+    if token:
+        certificate_id = verify_certificate_token(token)
+        if not certificate_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid certificate token.",
+            )
+    elif certId:
+        certificate_id = certId
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing token or certId parameter.",
+        )
+
+    stmt = select(CandidateApplication).where(
+        CandidateApplication.certificate_id == certificate_id
+    )
+    res = await db.execute(stmt)
+    candidate = res.scalar_one_or_none()
+
+    if not candidate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Certificate verification failed: Invalid certificate ID.",
+        )
+
+    status_val = "valid" if candidate.certificate_status == "generated" else "revoked"
+    date_str = (
+        candidate.completed_at.strftime("%B %d, %Y")
+        if candidate.completed_at
+        else ""
+    )
+
+    return CertificateVerifyResponse(
+        name=candidate.full_name,
+        course=candidate.course_applied or "Professional Certification Program",
+        status=status_val,
+        completion_date=date_str,
+        certificate_url=candidate.certificate_url,
     )
 
 

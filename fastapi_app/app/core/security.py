@@ -34,3 +34,21 @@ def decode_token(token: str) -> dict[str, Any]:
         return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     except JWTError:
         return {}
+
+
+def create_certificate_token(certificate_id: str) -> str:
+    payload = {
+        "certificate_id": certificate_id,
+        "type": "certificate_verification"
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def verify_certificate_token(token: str) -> str | None:
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        if payload.get("type") == "certificate_verification":
+            return payload.get("certificate_id")
+    except JWTError:
+        pass
+    return None
