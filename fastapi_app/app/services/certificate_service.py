@@ -265,9 +265,6 @@ class CertificateService:
         course_applied = candidate.course_applied or "Professional Certification Program"
         course_details = get_course_details(course_applied)
 
-        # Fetch conduct remark
-        conduct_remark = candidate.remarks.strip() if candidate.remarks else "Excellent"
-
         # Map candidate details to template data format
         data = {
             "certificateId": candidate.application_number or candidate.certificate_id,
@@ -283,7 +280,6 @@ class CertificateService:
             "startDate": candidate.course_start_date.strftime("%d/%m/%Y") if candidate.course_start_date else comp_date.strftime("%d/%m/%Y"),
             "endDate": comp_date.strftime("%d/%m/%Y"),
             "completionDate": completion_date_str,
-            "conductRemark": conduct_remark,
             "performance": candidate.performance,
         }
 
@@ -432,29 +428,18 @@ class CertificateService:
 
         y = panel_top - panel_height - 10 * mm
 
-        # ===================== Conduct & Performance remark =====================
+        # ===================== Performance remark =====================
         c.setFont("Helvetica", 11)
         c.setFillColor(DARK_TEXT)
-        conduct_line = f"{pronoun['possessive']} conduct and character during the period with us were "
-        c.drawString(margin, y, conduct_line)
-        cw = c.stringWidth(conduct_line, "Helvetica", 11)
+        perf_line = "Performance during the period was "
+        c.drawString(margin, y, perf_line)
+        pcw = c.stringWidth(perf_line, "Helvetica", 11)
         c.setFont("Helvetica-Bold", 11)
         c.setFillColor(TEAL)
-        c.drawString(margin + cw, y, f"{data['conductRemark']}.")
+        perf_val = (data.get("performance") or "Excellent").strip().capitalize()
+        c.drawString(margin + pcw, y, f"{perf_val}.")
 
-        if data.get("performance"):
-            y -= 5.5 * mm
-            c.setFont("Helvetica", 11)
-            c.setFillColor(DARK_TEXT)
-            perf_line = "Performance during the period was "
-            c.drawString(margin, y, perf_line)
-            pcw = c.stringWidth(perf_line, "Helvetica", 11)
-            c.setFont("Helvetica-Bold", 11)
-            c.setFillColor(TEAL)
-            perf_val = data["performance"].strip().capitalize()
-            c.drawString(margin + pcw, y, f"{perf_val}.")
-
-        y -= 9 * mm
+        y -= 8 * mm
         c.setFont("Helvetica", 11)
         c.setFillColor(DARK_TEXT)
         c.drawString(margin, y, "Wishing you all the best for your future endeavors.")
@@ -485,6 +470,22 @@ class CertificateService:
         c.setFont("Helvetica-Oblique", 11)
         c.setFillColor(DARK_TEXT)
         c.drawString(sig_x, 58 * mm, "Sincerely,")
+
+        # Draw digital signature
+        sig_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "signature.png")
+        try:
+            sig_img = ImageReader(sig_path)
+            c.drawImage(
+                sig_img,
+                sig_x + 10 * mm,
+                45 * mm,
+                width=35 * mm,
+                height=12 * mm,
+                mask="auto",
+                preserveAspectRatio=True,
+            )
+        except Exception as e:
+            logger.error(f"Failed to render digital signature: {e}")
 
         c.setStrokeColor(HAIRLINE)
         c.setLineWidth(0.8)

@@ -53,7 +53,6 @@ class CandidateApplication(Base):
     candidate_source: Mapped[str] = mapped_column(String(100), default="Website", nullable=False)
     candidate_token: Mapped[str] = mapped_column(String(255), unique=True, index=True, default=lambda: uuid.uuid4().hex)
     next_followup_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
     
     # Storage URLs
     cv_url: Mapped[str | None] = mapped_column(String(500), nullable=True)

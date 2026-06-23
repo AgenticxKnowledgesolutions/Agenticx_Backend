@@ -71,3 +71,15 @@ def test_single_regenerate_certificate(client):
         assert response.json()["certificate_url"] == "http://example.com/cert.pdf"
         mock_get.assert_called_once()
         mock_regen.assert_called_once()
+
+def test_bulk_soft_delete(client):
+    with patch("app.services.candidate_service.CandidateService.bulk_soft_delete_applications", new_callable=AsyncMock) as mock_trash:
+        mock_trash.return_value = 3
+        
+        payload = {"candidate_ids": ["c1", "c2", "c3"]}
+        response = client.post("/api/v1/candidates/bulk-trash", json=payload)
+        
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+        assert response.json()["detail"] == "Successfully moved 3 candidates to trash."
+        mock_trash.assert_called_once()

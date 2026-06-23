@@ -32,7 +32,6 @@ class CandidateCreate(BaseModel):
 
 class CandidateStatusUpdate(BaseModel):
     status: str = Field(..., max_length=50)
-    remarks: Optional[str] = None
     course_start_date: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     course_duration: Optional[str] = None

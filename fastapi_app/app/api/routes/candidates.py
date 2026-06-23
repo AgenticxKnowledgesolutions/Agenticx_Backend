@@ -189,6 +189,17 @@ async def bulk_permanent_delete_candidates(
     return {"success": True, "detail": f"Permanently deleted {count} candidates and cleaned up associated storage files."}
 
 
+@router.post("/bulk-trash", status_code=status.HTTP_200_OK)
+async def bulk_trash_candidates(
+    payload: BulkDeleteCandidatesPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin: move selected candidates to trash (soft delete)."""
+    count = await CandidateService.bulk_soft_delete_applications(db, payload.candidate_ids, user_email=current_user.email)
+    return {"success": True, "detail": f"Successfully moved {count} candidates to trash."}
+
+
 @router.post("/bulk-regenerate-certificates", status_code=status.HTTP_200_OK)
 async def bulk_regenerate_certificates(
     payload: BulkRegenerateCertificatesPayload,
@@ -248,7 +259,6 @@ async def update_status(
         db,
         id,
         payload.status,
-        remarks=payload.remarks,
         course_start_date=payload.course_start_date,
         completed_at=payload.completed_at,
         course_duration=payload.course_duration,

@@ -158,7 +158,6 @@ class CandidateService:
             application_status=data.get("application_status", "Submitted"),
             document_status=data.get("document_status", "Missing Documents"),
             candidate_source=data.get("candidate_source", "Website"),
-            remarks=data.get("remarks"),
             import_tag=data.get("import_tag"),
             next_followup_at=data.get("next_followup_at"),
             created_at=datetime.utcnow(),
@@ -169,6 +168,14 @@ class CandidateService:
         candidate.document_status = cls.calculate_document_status(candidate)
 
         db.add(candidate)
+
+        if data.get("remarks"):
+            await cls.add_candidate_note(
+                db,
+                candidate.id,
+                f"[Admission remarks]: {data.get('remarks')}",
+                created_by=created_by
+            )
         
         # Update associated lead to Converted status if lead_id is provided
         lead_id = data.get("lead_id")
@@ -391,6 +398,36 @@ class CandidateService:
         return True
 
     @classmethod
+    async def bulk_soft_delete_applications(
+        cls, db: AsyncSession, candidate_ids: List[str], user_email: Optional[str] = "Admin"
+    ) -> int:
+        if not candidate_ids:
+            return 0
+        
+        stmt = select(CandidateApplication).where(
+            CandidateApplication.id.in_(candidate_ids),
+            CandidateApplication.is_deleted == False
+        )
+        res = await db.execute(stmt)
+        candidates = res.scalars().all()
+        
+        deleted_count = 0
+        for candidate in candidates:
+            candidate.is_deleted = True
+            candidate.deleted_at = datetime.utcnow()
+            await cls.add_timeline_event(
+                db,
+                candidate.id,
+                "Deleted",
+                f"Candidate application moved to trash by bulk operation by {user_email}.",
+                user_email
+            )
+            deleted_count += 1
+            
+        await db.commit()
+        return deleted_count
+
+    @classmethod
     async def restore_application(
         cls, db: AsyncSession, candidate_id: str, user_email: Optional[str] = "Admin"
     ) -> bool:
@@ -546,7 +583,6 @@ class CandidateService:
         db: AsyncSession,
         candidate_id: str,
         new_status: str,
-        remarks: Optional[str] = None,
         course_start_date: Optional[datetime] = None,
         completed_at: Optional[datetime] = None,
         course_duration: Optional[str] = None,
@@ -565,9 +601,6 @@ class CandidateService:
             status_val = new_status.lower()
             old_status = candidate.application_status
             candidate.application_status = status_val
-            
-            if remarks:
-                candidate.remarks = remarks
 
             # Update course start/end dates and duration
             if course_start_date is not None:
@@ -585,8 +618,6 @@ class CandidateService:
 
             # Add timeline event
             desc = f"Application status changed from '{old_status}' to '{status_val}'."
-            if remarks:
-                desc += f" Remarks: {remarks}"
             await cls.add_timeline_event(db, candidate.id, status_val, desc, user_email)
 
             # Update DB FIRST and commit status change
@@ -900,7 +931,12 @@ class CandidateService:
                     if aadhaar and not existing_candidate.aadhaar_number_encrypted:
                         existing_candidate.aadhaar_number_encrypted = encrypt_aadhaar(aadhaar)
                     if remarks:
-                        existing_candidate.remarks = (existing_candidate.remarks or "") + f"\n[Import update]: {remarks}"
+                        await cls.add_candidate_note(
+                            db,
+                            existing_candidate.id,
+                            f"[Import update remarks]: {remarks}",
+                            created_by=upload_user
+                        )
                     
                     existing_candidate.updated_at = datetime.utcnow()
                     
@@ -950,7 +986,6 @@ class CandidateService:
                         application_status="Submitted",
                         document_status="Missing Documents",  # Since Excel import has no docs initially
                         candidate_source="Excel Import",
-                        remarks=remarks,
                         import_batch_id=batch.id,
                         import_tag=tag,
                         created_at=datetime.utcnow(),
@@ -959,6 +994,14 @@ class CandidateService:
                     
                     db.add(new_candidate)
                     await db.flush()
+
+                    if remarks:
+                        await cls.add_candidate_note(
+                            db,
+                            new_candidate.id,
+                            f"[Import remarks]: {remarks}",
+                            created_by=upload_user
+                        )
                     
                     await cls.add_timeline_event(
                         db,
