@@ -6,7 +6,7 @@ from typing import Optional, List, Dict
 from datetime import datetime
 
 from app.core.database import get_db
-from app.schemas.candidate import CandidateCreate, CandidateStatusUpdate, CandidateNoteCreate, CandidateImportMapping
+from app.schemas.candidate import CandidateCreate, CandidateStatusUpdate, CandidateNoteCreate, CandidateImportMapping, BulkDeleteCandidatesPayload, BulkRegenerateCertificatesPayload
 from app.services.candidate_service import CandidateService
 from app.deps import require_admin
 from app.models.user import User
@@ -176,6 +176,56 @@ async def mark_notifications_read(
     await db.execute(stmt)
     await db.commit()
     return {"success": True}
+
+
+@router.delete("/permanent", status_code=status.HTTP_200_OK)
+async def bulk_permanent_delete_candidates(
+    payload: BulkDeleteCandidatesPayload,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin)
+):
+    """Admin: permanently delete candidates from database and clear storage files."""
+    count = await CandidateService.bulk_hard_delete_applications(db, payload.candidate_ids)
+    return {"success": True, "detail": f"Permanently deleted {count} candidates and cleaned up associated storage files."}
+
+
+@router.post("/bulk-regenerate-certificates", status_code=status.HTTP_200_OK)
+async def bulk_regenerate_certificates(
+    payload: BulkRegenerateCertificatesPayload,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin)
+):
+    """Admin: bulk regenerate certificates for selected candidate IDs."""
+    result = await CandidateService.bulk_regenerate_certificates(db, payload.candidate_ids)
+    return result
+
+
+@router.post("/{id}/regenerate-certificate", status_code=status.HTTP_200_OK)
+async def regenerate_single_certificate(
+    id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin)
+):
+    """Admin: regenerate certificate for a single candidate."""
+    candidate = await CandidateService.get_application_by_id(db, id)
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    if (candidate.application_status or "").lower() != "completed":
+        raise HTTPException(status_code=400, detail="Cannot regenerate certificate for non-completed application")
+        
+    from app.services.certificate_service import certificate_service
+    updated_candidate = await certificate_service.regenerate_certificate(db, candidate)
+    await db.commit()
+    await db.refresh(updated_candidate)
+    
+    return {
+        "success": True,
+        "detail": "Certificate regenerated successfully",
+        "certificate_url": updated_candidate.certificate_url,
+        "certificate_id": updated_candidate.certificate_id
+    }
+
 
 @router.get("/{id}")
 async def get_candidate(

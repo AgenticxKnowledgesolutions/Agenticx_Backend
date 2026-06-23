@@ -139,32 +139,103 @@ def draw_wrapped_text(c, text, x, y, max_width, font="Helvetica", size=11,
 
 
 def get_course_details(course_name: str) -> dict:
-    course_name_lower = (course_name or "").lower()
-    if "data analytics" in course_name_lower:
+    if not course_name or not course_name.strip():
+        raise ValueError("Course name cannot be empty or null for certificate generation.")
+
+    course_name_clean = course_name.strip()
+    course_name_lower = course_name_clean.lower()
+    
+    # 1. Check for Webinar
+    if "webinar" in course_name_lower:
+        topic = "General Technology"
+        if "webinar on" in course_name_lower:
+            parts = course_name_clean.split("on", 1)
+            if len(parts) > 1 and parts[1].strip():
+                topic = parts[1].strip()
+        elif "webinar:" in course_name_lower:
+            parts = course_name_clean.split(":", 1)
+            if len(parts) > 1 and parts[1].strip():
+                topic = parts[1].strip()
+        elif "webinar -" in course_name_lower:
+            parts = course_name_clean.split("-", 1)
+            if len(parts) > 1 and parts[1].strip():
+                topic = parts[1].strip()
+        elif course_name_lower.startswith("webinar") and len(course_name_lower) > 7:
+            topic = course_name_clean[7:].strip()
+            
         return {
-            "topics": "Basics of Financial Accounting, MS Excel, Alteryx, Basics of SQL, Python, and Power BI",
-            "domain": "Data Analytics"
+            "topics": f"Technology Overview, Industry Trends, Emerging Concepts, Q&A with Experts, and Interactive Discussions on {topic}",
+            "domain": f"Webinar: {topic}"
         }
-    elif "react native" in course_name_lower:
+
+    # 2. Check for Workshop
+    if "workshop" in course_name_lower or "bootcamp" in course_name_lower:
+        topic = "Practical Technology Labs"
+        keyword = "workshop" if "workshop" in course_name_lower else "bootcamp"
+        
+        if f"{keyword} on" in course_name_lower:
+            parts = course_name_clean.split("on", 1)
+            if len(parts) > 1 and parts[1].strip():
+                topic = parts[1].strip()
+        elif f"{keyword}:" in course_name_lower:
+            parts = course_name_clean.split(":", 1)
+            if len(parts) > 1 and parts[1].strip():
+                topic = parts[1].strip()
+        elif f"{keyword} -" in course_name_lower:
+            parts = course_name_clean.split("-", 1)
+            if len(parts) > 1 and parts[1].strip():
+                topic = parts[1].strip()
+        elif course_name_lower.startswith(keyword) and len(course_name_lower) > len(keyword):
+            topic = course_name_clean[len(keyword):].strip()
+            
         return {
-            "topics": "React Native components, Navigation, State Management, Push Notifications, Native Modules, App Store Deployment",
-            "domain": "Mobile App Development"
+            "topics": f"Interactive Technical Training, Practical Labs, Guided Projects, Framework Deep-Dive, and Collaborative Problem Solving on {topic}",
+            "domain": f"Workshop: {topic}"
         }
-    elif "full stack" in course_name_lower or "web" in course_name_lower:
+
+    # 3. Check for Internship
+    if "internship" in course_name_lower or "intern" in course_name_lower:
+        role = "Software Development"
+        if "internship in" in course_name_lower:
+            parts = course_name_clean.split("in", 1)
+            if len(parts) > 1 and parts[1].strip():
+                role = parts[1].strip()
+        elif "internship:" in course_name_lower:
+            parts = course_name_clean.split(":", 1)
+            if len(parts) > 1 and parts[1].strip():
+                role = parts[1].strip()
+        elif "internship -" in course_name_lower:
+            parts = course_name_clean.split("-", 1)
+            if len(parts) > 1 and parts[1].strip():
+                role = parts[1].strip()
+        elif course_name_lower.startswith("internship") and len(course_name_lower) > 10:
+            role = course_name_clean[10:].strip()
+            
         return {
-            "topics": "HTML5, CSS3, JavaScript, React, Node.js, Express, databases, REST APIs, and Cloud Deployment",
-            "domain": "Full Stack Web Development"
+            "topics": f"Hands-on Project Work, Collaborative Development, Version Control, Code Reviews, Software Engineering Lifecycle, and Professional Best Practices in {role}",
+            "domain": f"Internship: {role}"
         }
-    elif "fastapi" in course_name_lower or "python" in course_name_lower:
+
+    # 4. Standard config alias matching (longest matching alias first)
+    from app.core.course_config import COURSE_CONFIG
+    
+    best_match = None
+    best_match_length = -1
+    
+    for config in COURSE_CONFIG:
+        for alias in config["aliases"]:
+            if alias in course_name_lower:
+                if len(alias) > best_match_length:
+                    best_match_length = len(alias)
+                    best_match = config
+                    
+    if best_match:
         return {
-            "topics": "Python programming, FastAPI framework, Pydantic, SQLAlchemy, PostgreSQL, async programming, and API Security",
-            "domain": "Backend Web Development"
+            "topics": best_match["topics"],
+            "domain": best_match["domain"]
         }
-    else:
-        return {
-            "topics": "Advanced core concepts, industry best practices, practical application, and final project evaluation",
-            "domain": "Software Engineering"
-        }
+
+    raise ValueError(f"Unrecognized course name: '{course_name}'. Please register this course or use a valid name to generate the certificate.")
 
 
 class CertificateService:
@@ -461,6 +532,24 @@ class CertificateService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Certificate generation or storage upload failed: {str(e)}"
             )
+
+    @staticmethod
+    async def regenerate_certificate(db: AsyncSession, candidate: CandidateApplication) -> CandidateApplication:
+        """Regenerates the certificate. If a certificate exists, it hard deletes it from storage first."""
+        uploader = CertificateUploadService()
+        if candidate.certificate_url:
+            try:
+                await uploader.delete_file(candidate.certificate_url)
+                logger.info(f"Deleted existing certificate file {candidate.certificate_url} for candidate {candidate.id}")
+            except Exception as e:
+                logger.warning(f"Failed to delete existing certificate file for candidate {candidate.id}: {e}")
+
+        # Reset certificate status
+        candidate.certificate_url = None
+        candidate.certificate_status = "pending"
+        
+        # Generate new one
+        return await CertificateService.generate_and_save_certificate(db, candidate)
 
 
 certificate_service = CertificateService()

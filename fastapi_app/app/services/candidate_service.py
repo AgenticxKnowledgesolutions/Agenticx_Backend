@@ -1,6 +1,10 @@
 import base64
 import hashlib
 import uuid
+import logging
+import asyncio
+
+logger = logging.getLogger(__name__)
 import openpyxl
 import csv
 import io
@@ -414,15 +418,127 @@ class CandidateService:
     async def hard_delete_application(
         cls, db: AsyncSession, candidate_id: str
     ) -> bool:
-        stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id)
+        count = await cls.bulk_hard_delete_applications(db, [candidate_id])
+        return count > 0
+
+    @classmethod
+    async def bulk_hard_delete_applications(
+        cls, db: AsyncSession, candidate_ids: List[str]
+    ) -> int:
+        if not candidate_ids:
+            return 0
+
+        # 1. Fetch candidates to get their file URLs
+        stmt = select(CandidateApplication).where(CandidateApplication.id.in_(candidate_ids))
         res = await db.execute(stmt)
-        candidate = res.scalar_one_or_none()
-        if not candidate:
-            return False
+        candidates = res.scalars().all()
+        if not candidates:
+            return 0
+
+        # Collect all file deletion tasks
+        delete_tasks = []
         
-        await db.delete(candidate)
+        # Helper for candidate documents
+        async def safe_delete_doc(url):
+            try:
+                await candidate_upload_service.delete_file(url)
+            except Exception as e:
+                logger.error(f"Error deleting candidate document {url}: {e}")
+
+        # Helper for certificates
+        async def safe_delete_cert(url):
+            try:
+                from app.services.certificate_service import CertificateUploadService
+                cert_uploader = CertificateUploadService()
+                await cert_uploader.delete_file(url)
+            except Exception as e:
+                logger.error(f"Error deleting candidate certificate {url}: {e}")
+
+        for candidate in candidates:
+            # Candidate documents (candidate-documents bucket)
+            doc_urls = [
+                candidate.cv_url,
+                candidate.photo_url,
+                candidate.aadhaar_url,
+                candidate.college_id_url,
+                candidate.confirmation_letter_url
+            ]
+            for url in doc_urls:
+                if url:
+                    delete_tasks.append(safe_delete_doc(url))
+
+            # Certificate (certificates bucket)
+            if candidate.certificate_url:
+                delete_tasks.append(safe_delete_cert(candidate.certificate_url))
+
+        # Run file deletions in parallel
+        if delete_tasks:
+            await asyncio.gather(*delete_tasks, return_exceptions=True)
+
+        # 2. Delete candidates from database
+        deleted_count = 0
+        for candidate in candidates:
+            await db.delete(candidate)
+            deleted_count += 1
+
         await db.commit()
-        return True
+        return deleted_count
+
+    @classmethod
+    async def bulk_regenerate_certificates(
+        cls, db: AsyncSession, candidate_ids: List[str]
+    ) -> dict:
+        results = []
+        processed = 0
+        success_count = 0
+        failed_count = 0
+
+        # Load candidates
+        stmt = select(CandidateApplication).where(CandidateApplication.id.in_(candidate_ids))
+        res = await db.execute(stmt)
+        candidates = res.scalars().all()
+
+        from app.services.certificate_service import certificate_service
+
+        for candidate in candidates:
+            processed += 1
+            # Match status check case-insensitively
+            status_lower = (candidate.application_status or "").lower()
+            if status_lower != "completed":
+                results.append({
+                    "id": candidate.id,
+                    "success": False,
+                    "error": "Candidate application status is not 'Completed'"
+                })
+                failed_count += 1
+                continue
+
+            try:
+                # Regenerate certificate
+                await certificate_service.regenerate_certificate(db, candidate)
+                # Commit change for each candidate to avoid losing all progress if one fails
+                await db.commit()
+                results.append({
+                    "id": candidate.id,
+                    "success": True,
+                    "certificate_url": candidate.certificate_url
+                })
+                success_count += 1
+            except Exception as e:
+                logger.error(f"Failed to regenerate certificate for candidate {candidate.id}: {e}", exc_info=True)
+                results.append({
+                    "id": candidate.id,
+                    "success": False,
+                    "error": str(e)
+                })
+                failed_count += 1
+
+        return {
+            "processed": processed,
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "results": results
+        }
 
     @classmethod
     async def update_application_status(

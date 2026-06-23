@@ -48,3 +48,11 @@ class CandidateImportMapping(BaseModel):
     column_mapping: Dict[str, str]
     mode: str = Field("candidate_only", description="candidate_only, lead_only, or lead_candidate")
     tag: Optional[str] = None
+
+
+class BulkDeleteCandidatesPayload(BaseModel):
+    candidate_ids: List[str]
+
+
+class BulkRegenerateCertificatesPayload(BaseModel):
+    candidate_ids: List[str]
