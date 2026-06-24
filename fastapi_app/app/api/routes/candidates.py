@@ -218,7 +218,10 @@ async def regenerate_single_certificate(
     _: User = Depends(require_admin)
 ):
     """Admin: regenerate certificate for a single candidate."""
-    candidate = await CandidateService.get_application_by_id(db, id)
+    from app.models.candidate import CandidateApplication
+    stmt = select(CandidateApplication).where(CandidateApplication.id == id)
+    res = await db.execute(stmt)
+    candidate = res.scalar_one_or_none()
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     

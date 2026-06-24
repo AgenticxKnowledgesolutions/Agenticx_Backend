@@ -611,6 +611,22 @@ class CandidateService:
                         detail="Cannot mark status as Completed: both Program Type and Performance are required."
                     )
 
+            # Check if any certificate fields changed before updating them
+            cert_fields_changed = False
+            if status_val == "completed" and candidate.certificate_status == "valid":
+                if course_start_date is not None and course_start_date != candidate.course_start_date:
+                    cert_fields_changed = True
+                if completed_at is not None and completed_at != candidate.completed_at:
+                    cert_fields_changed = True
+                if course_duration is not None and course_duration != candidate.course_duration:
+                    cert_fields_changed = True
+                if performance is not None and performance != candidate.performance:
+                    cert_fields_changed = True
+                if program_type is not None and program_type != candidate.program_type:
+                    cert_fields_changed = True
+                if course_applied is not None and course_applied != candidate.course_applied:
+                    cert_fields_changed = True
+
             old_status = candidate.application_status
             candidate.application_status = status_val
 
@@ -638,8 +654,8 @@ class CandidateService:
             await db.commit()
             await db.refresh(candidate)
 
-            # Trigger certificate generation if status updated to Completed
-            if status_val == "completed" and candidate.certificate_status != "valid":
+            # Trigger certificate generation if status updated to Completed OR certificate fields changed
+            if status_val == "completed" and (candidate.certificate_status != "valid" or cert_fields_changed):
                 try:
                     # Validate required fields
                     if not candidate.full_name:
@@ -654,7 +670,10 @@ class CandidateService:
                         raise Exception("Missing program type")
 
                     from app.services.certificate_service import certificate_service
-                    await certificate_service.generate_and_save_certificate(db, candidate)
+                    if cert_fields_changed:
+                        await certificate_service.regenerate_certificate(db, candidate)
+                    else:
+                        await certificate_service.generate_and_save_certificate(db, candidate)
                     await db.commit()
                     await db.refresh(candidate)
                 except Exception as ce:
