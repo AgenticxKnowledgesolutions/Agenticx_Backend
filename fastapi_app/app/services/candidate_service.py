@@ -1060,3 +1060,29 @@ class CandidateService:
             "duplicate_records": batch.duplicate_records,
             "failed_records": batch.failed_records
         }
+
+    @classmethod
+    async def execute_import_in_background(
+        cls,
+        file_bytes: bytes,
+        filename: str,
+        column_mapping: Dict[str, str],
+        mode: str,
+        upload_user: str,
+        tag: Optional[str] = None
+    ) -> None:
+        """Runs process_import_batch asynchronously in a background task with a new database session."""
+        from app.core.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            try:
+                await cls.process_import_batch(
+                    db=db,
+                    file_bytes=file_bytes,
+                    filename=filename,
+                    column_mapping=column_mapping,
+                    mode=mode,
+                    upload_user=upload_user,
+                    tag=tag
+                )
+            except Exception as e:
+                logger.error(f"Error executing background import for file {filename}: {e}", exc_info=True)

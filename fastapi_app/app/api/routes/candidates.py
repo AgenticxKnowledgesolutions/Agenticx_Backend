@@ -1,5 +1,5 @@
 import json
-from fastapi import APIRouter, Depends, status, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, status, HTTPException, UploadFile, File, Form, Query, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List, Dict
@@ -359,6 +359,7 @@ async def preview_import_headers(
 
 @router.post("/import/process")
 async def process_import(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     mapping: str = Form(..., description="JSON string of column mapping"),
     mode: str = Form("candidate_only", description="candidate_only, lead_only, lead_candidate"),
@@ -377,9 +378,24 @@ async def process_import(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid mapping JSON format.")
 
     content = await file.read()
+
+    # Calculate total_rows quickly in request thread
+    import io
+    import openpyxl
+    total_rows = "Processing..."
     try:
-        stats = await CandidateService.process_import_batch(
-            db=db,
+        if filename.endswith(".csv"):
+            total_rows = max(0, content.count(b"\n") - 1)
+        else:
+            wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True)
+            sheet = wb.active
+            total_rows = max(0, (sheet.max_row or 0) - 1)
+    except Exception:
+        pass
+
+    try:
+        background_tasks.add_task(
+            CandidateService.execute_import_in_background,
             file_bytes=content,
             filename=filename,
             column_mapping=mapping_dict,
@@ -387,11 +403,20 @@ async def process_import(
             upload_user=current_user.email,
             tag=tag
         )
-        return {"success": True, "stats": stats}
+        return {
+            "success": True,
+            "stats": {
+                "total_rows": total_rows,
+                "new_records": "Processing...",
+                "updated_records": "Processing...",
+                "duplicate_records": "Processing...",
+                "failed_records": "Processing..."
+            }
+        }
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error processing import: {str(e)}"
+            detail=f"Error starting background import: {str(e)}"
         )
 
 @router.delete("/{id}")
