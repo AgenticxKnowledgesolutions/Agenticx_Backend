@@ -794,6 +794,13 @@ class CandidateService:
             phone = row.get("phone", "").strip()
             name = row.get("full_name", "").strip()
             
+            # Normalize phone (keep primary number if multiple are specified)
+            if phone:
+                for sep in (",", "/", ";", " "):
+                    if sep in phone:
+                        phone = phone.split(sep)[0].strip()
+                        break
+            
             # Basic validation
             if not email and not phone:
                 batch.failed_records += 1
@@ -801,7 +808,13 @@ class CandidateService:
 
             # Format/clean fields
             whatsapp = row.get("whatsapp_number", "").strip()
+            if whatsapp:
+                for sep in (",", "/", ";", " "):
+                    if sep in whatsapp:
+                        whatsapp = whatsapp.split(sep)[0].strip()
+                        break
             address = row.get("address", "").strip()
+            program_type = row.get("program_type", "").strip()
             emergency = row.get("emergency_contact", "").strip()
             qualification = row.get("qualification", "").strip()
             blood = row.get("blood_group", "").strip()
@@ -965,6 +978,8 @@ class CandidateService:
                         existing_candidate.parent_guardian_name = parent
                     if parent_occ and not existing_candidate.parent_guardian_occupation:
                         existing_candidate.parent_guardian_occupation = parent_occ
+                    if program_type and not existing_candidate.program_type:
+                        existing_candidate.program_type = program_type
                     if aadhaar and not existing_candidate.aadhaar_number_encrypted:
                         existing_candidate.aadhaar_number_encrypted = encrypt_aadhaar(aadhaar)
                     if remarks:
@@ -1020,6 +1035,7 @@ class CandidateService:
                         parent_guardian_name=parent,
                         parent_guardian_occupation=parent_occ,
                         aadhaar_number_encrypted=encrypt_aadhaar(aadhaar) if aadhaar else None,
+                        program_type=program_type if program_type else None,
                         application_status="Submitted",
                         document_status="Missing Documents",  # Since Excel import has no docs initially
                         candidate_source="Excel Import",
