@@ -281,6 +281,7 @@ class CertificateService:
             "endDate": comp_date.strftime("%d/%m/%Y"),
             "completionDate": completion_date_str,
             "performance": candidate.performance,
+            "programType": candidate.program_type or "Course",
         }
 
         # Draw PDF using ReportLab in-memory
@@ -359,16 +360,31 @@ class CertificateService:
         # ===================== Body paragraph =====================
         body_y = title_y - 16 * mm
         body = (
-            f"This is to certify that {data['recipientName']} has successfully completed the "
-            f"{data['courseName']}, covering {data['courseTopics']} at {data['organizationName']} "
+            f"This is to certify that <b>{data['recipientName']}</b> has successfully completed the "
+            f"<b>{data['courseName']}</b>, covering {data['courseTopics']} at {data['organizationName']} "
             f"on {data['completionDate']}. {pronoun['subject']} actively participated throughout the "
             f"program with full dedication and demonstrated a strong commitment to learning."
         )
-        y = draw_wrapped_text(c, body, margin, body_y, content_w, size=11, leading=15.5)
+        
+        from reportlab.platypus import Paragraph
+        from reportlab.lib.styles import ParagraphStyle
+        
+        body_style = ParagraphStyle(
+            'CertBody',
+            fontName='Helvetica',
+            fontSize=11,
+            leading=15.5,
+            textColor=DARK_TEXT
+        )
+        p = Paragraph(body, body_style)
+        pw, ph = p.wrap(content_w, 100 * mm)
+        p.drawOn(c, margin, body_y - ph)
+        y = body_y - ph
 
         # ===================== Course Details panel =====================
         panel_top = y - 6 * mm
         detail_rows = [
+            ("Program", data["programType"]),
             ("Organization", data["organizationName"]),
             ("Mode", data["courseMode"]),
             ("Duration & Hours", data["courseDuration"]),

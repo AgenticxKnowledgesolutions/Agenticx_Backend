@@ -587,6 +587,7 @@ class CandidateService:
         completed_at: Optional[datetime] = None,
         course_duration: Optional[str] = None,
         performance: Optional[str] = None,
+        program_type: Optional[str] = None,
         course_applied: Optional[str] = None,
         user_email: Optional[str] = "Admin"
     ) -> CandidateApplication:
@@ -599,6 +600,17 @@ class CandidateService:
 
             # Lowercase incoming status
             status_val = new_status.lower()
+            
+            # Validation before changing status to Completed
+            if status_val == "completed":
+                perf_val = performance if performance is not None else candidate.performance
+                prog_val = program_type if program_type is not None else candidate.program_type
+                if not perf_val or not prog_val:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Cannot mark status as Completed: both Program Type and Performance are required."
+                    )
+
             old_status = candidate.application_status
             candidate.application_status = status_val
 
@@ -611,6 +623,8 @@ class CandidateService:
                 candidate.course_duration = course_duration
             if performance is not None:
                 candidate.performance = performance
+            if program_type is not None:
+                candidate.program_type = program_type
             if course_applied is not None:
                 candidate.course_applied = course_applied
 
@@ -634,6 +648,10 @@ class CandidateService:
                         raise Exception("Missing course")
                     if not candidate.date_of_birth:
                         raise Exception("Missing DOB")
+                    if not candidate.performance:
+                        raise Exception("Missing performance")
+                    if not candidate.program_type:
+                        raise Exception("Missing program type")
 
                     from app.services.certificate_service import certificate_service
                     await certificate_service.generate_and_save_certificate(db, candidate)

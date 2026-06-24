@@ -69,6 +69,7 @@ class CandidateApplication(Base):
     course_start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     course_duration: Mapped[str | None] = mapped_column(String(100), nullable=True)
     performance: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    program_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     
     # Import references
     import_batch_id: Mapped[str | None] = mapped_column(String, ForeignKey("candidate_import_batches.id"), nullable=True)

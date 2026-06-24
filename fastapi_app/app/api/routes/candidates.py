@@ -263,6 +263,7 @@ async def update_status(
         completed_at=payload.completed_at,
         course_duration=payload.course_duration,
         performance=payload.performance,
+        program_type=payload.program_type,
         course_applied=payload.course_applied,
         user_email=current_user.email
     )

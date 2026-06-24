@@ -1,6 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List, Dict
 from datetime import datetime
+from app.models.enums import ProgramType, PerformanceType
 
 
 class CandidateCreate(BaseModel):
@@ -35,7 +36,8 @@ class CandidateStatusUpdate(BaseModel):
     course_start_date: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     course_duration: Optional[str] = None
-    performance: Optional[str] = None
+    performance: Optional[PerformanceType] = None
+    program_type: Optional[ProgramType] = None
     course_applied: Optional[str] = None
 
 
