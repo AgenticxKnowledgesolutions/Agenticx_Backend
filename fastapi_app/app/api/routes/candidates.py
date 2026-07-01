@@ -13,6 +13,7 @@ from app.models.user import User
 from app.models.admin_notification import AdminNotification
 from app.models.lead_token import LeadToken
 from app.models.lead import Lead
+from app.models.candidate_application import CandidateApplication
 from sqlalchemy import select, update
 
 router = APIRouter(prefix="/candidates", tags=["candidates"])
@@ -486,46 +487,56 @@ async def update_candidate_offer(
     current_user: User = Depends(require_admin)
 ):
     """Admin: Update candidate financial offer and settings."""
-    stmt = select(CandidateApplication).where(CandidateApplication.id == id, CandidateApplication.is_deleted == False)
-    res = await db.execute(stmt)
-    candidate = res.scalar_one_or_none()
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Candidate not found")
+    try:
+        stmt = select(CandidateApplication).where(CandidateApplication.id == id, CandidateApplication.is_deleted == False)
+        res = await db.execute(stmt)
+        candidate = res.scalar_one_or_none()
+        if not candidate:
+            raise HTTPException(status_code=404, detail="Candidate not found")
+            
+        candidate.standard_course_fee = data.standard_course_fee
+        candidate.scholarship_amount = data.scholarship_amount
+        candidate.special_discount = data.special_discount
+        candidate.corporate_discount = data.corporate_discount
+        candidate.promo_discount = data.promo_discount
+        candidate.booking_amount = data.booking_amount
+        candidate.offer_remarks = data.offer_remarks
+        candidate.offer_expiry_date = data.offer_expiry_date
+        candidate.admission_fee_amount = data.admission_fee_amount
+        candidate.auto_enroll_enabled = data.auto_enroll_enabled
         
-    candidate.standard_course_fee = data.standard_course_fee
-    candidate.scholarship_amount = data.scholarship_amount
-    candidate.special_discount = data.special_discount
-    candidate.corporate_discount = data.corporate_discount
-    candidate.promo_discount = data.promo_discount
-    candidate.booking_amount = data.booking_amount
-    candidate.offer_remarks = data.offer_remarks
-    candidate.offer_expiry_date = data.offer_expiry_date
-    candidate.admission_fee_amount = data.admission_fee_amount
-    candidate.auto_enroll_enabled = data.auto_enroll_enabled
-    
-    # Calculate final payable amount
-    candidate.final_payable_amount = max(
-        0.0,
-        data.standard_course_fee - (
-            data.scholarship_amount +
-            data.special_discount +
-            data.corporate_discount +
-            data.promo_discount
+        # Calculate final payable amount
+        candidate.final_payable_amount = max(
+            0.0,
+            data.standard_course_fee - (
+                data.scholarship_amount +
+                data.special_discount +
+                data.corporate_discount +
+                data.promo_discount
+            )
         )
-    )
-    
-    # Log timeline event
-    from app.models.candidate_application import CandidateTimelineEvent
-    evt = CandidateTimelineEvent(
-        candidate_id=candidate.id,
-        event_type="Offer Updated",
-        description=f"Financial offer updated by admin: Course Fee ₹{candidate.standard_course_fee}, Final Payable ₹{candidate.final_payable_amount}",
-        created_by=current_user.email
-    )
-    db.add(evt)
-    await db.commit()
-    
-    return await CandidateService.get_application_by_id(db, id)
+        
+        # Log timeline event
+        from app.models.candidate_application import CandidateTimelineEvent
+        evt = CandidateTimelineEvent(
+            candidate_id=candidate.id,
+            event_type="Offer Updated",
+            description=f"Financial offer updated by admin: Course Fee ₹{candidate.standard_course_fee}, Final Payable ₹{candidate.final_payable_amount}",
+            created_by=current_user.email
+        )
+        db.add(evt)
+        await db.commit()
+        
+        return await CandidateService.get_application_by_id(db, id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.exception("Exception occurred in update_candidate_offer: %s", str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update candidate offer: {str(e)}"
+        )
 
 
 @router.post("/{id}/record-payment")
@@ -536,52 +547,62 @@ async def record_candidate_payment(
     current_user: User = Depends(require_admin)
 ):
     """Admin: Record an offline payment (Cash/UPI/Bank Transfer) for a candidate."""
-    stmt = select(CandidateApplication).where(CandidateApplication.id == id, CandidateApplication.is_deleted == False)
-    res = await db.execute(stmt)
-    candidate = res.scalar_one_or_none()
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Candidate not found")
-        
-    # Record payment
-    payment = CandidatePayment(
-        candidate_id=candidate.id,
-        amount=data.amount,
-        payment_type=data.payment_type,
-        payment_method=data.payment_method,
-        status="Paid",
-        transaction_id=data.transaction_id,
-        payment_date=datetime.now()
-    )
-    db.add(payment)
-    
-    # Update candidate status
-    from app.models.candidate_application import CandidateTimelineEvent
-    if data.payment_type == "Admission Fee":
-        candidate.admission_fee_paid = True
-        old_status = candidate.application_status
-        if candidate.auto_enroll_enabled:
-            candidate.application_status = "Enrolled"
-        else:
-            candidate.application_status = "Admission Fee Paid"
+    try:
+        stmt = select(CandidateApplication).where(CandidateApplication.id == id, CandidateApplication.is_deleted == False)
+        res = await db.execute(stmt)
+        candidate = res.scalar_one_or_none()
+        if not candidate:
+            raise HTTPException(status_code=404, detail="Candidate not found")
             
-        evt_status = CandidateTimelineEvent(
+        # Record payment
+        payment = CandidatePayment(
             candidate_id=candidate.id,
-            event_type="Status Updated",
-            description=f"Status changed from {old_status} to {candidate.application_status} on manual payment record",
+            amount=data.amount,
+            payment_type=data.payment_type,
+            payment_method=data.payment_method,
+            status="Paid",
+            transaction_id=data.transaction_id,
+            payment_date=datetime.now()
+        )
+        db.add(payment)
+        
+        # Update candidate status
+        from app.models.candidate_application import CandidateTimelineEvent
+        if data.payment_type == "Admission Fee":
+            candidate.admission_fee_paid = True
+            old_status = candidate.application_status
+            if candidate.auto_enroll_enabled:
+                candidate.application_status = "Enrolled"
+            else:
+                candidate.application_status = "Admission Fee Paid"
+                
+            evt_status = CandidateTimelineEvent(
+                candidate_id=candidate.id,
+                event_type="Status Updated",
+                description=f"Status changed from {old_status} to {candidate.application_status} on manual payment record",
+                created_by=current_user.email
+            )
+            db.add(evt_status)
+            
+        evt_pay = CandidateTimelineEvent(
+            candidate_id=candidate.id,
+            event_type="Payment Recorded",
+            description=f"Manual payment of ₹{data.amount} ({data.payment_type}) via {data.payment_method} recorded.",
             created_by=current_user.email
         )
-        db.add(evt_status)
+        db.add(evt_pay)
+        await db.commit()
         
-    evt_pay = CandidateTimelineEvent(
-        candidate_id=candidate.id,
-        event_type="Payment Recorded",
-        description=f"Manual payment of ₹{data.amount} ({data.payment_type}) via {data.payment_method} recorded.",
-        created_by=current_user.email
-    )
-    db.add(evt_pay)
-    await db.commit()
-    
-    return await CandidateService.get_application_by_id(db, id)
+        return await CandidateService.get_application_by_id(db, id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.exception("Exception occurred in record_candidate_payment: %s", str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to record payment: {str(e)}"
+        )
 
 
 @router.get("/portal/profile")
