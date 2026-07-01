@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     SMTP_FROM: str = ""
+    RESEND_API_KEY: str = ""
     FRONTEND_URL: str = "https://www.agenticx.co.in"
     CERTIFICATE_FRONTEND_URL: str = "https://certificate.agenticx.co.in"
 
