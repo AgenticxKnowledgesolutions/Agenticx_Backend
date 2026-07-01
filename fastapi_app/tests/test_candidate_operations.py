@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock
 from fastapi.testclient import TestClient
 from app.main import app
 from app.api.routes.candidates import require_admin
@@ -55,21 +55,25 @@ def test_single_regenerate_certificate(client):
         certificate_url = "http://example.com/cert.pdf"
         certificate_id = "cert_123"
 
+    mock_res = MagicMock()
+    candidate = MockCandidate()
+    mock_res.scalar_one_or_none.return_value = candidate
+
     with patch("app.services.candidate_service.CandidateService.get_application_by_id", new_callable=AsyncMock) as mock_get, \
          patch("app.services.certificate_service.certificate_service.regenerate_certificate", new_callable=AsyncMock) as mock_regen, \
+         patch("sqlalchemy.ext.asyncio.AsyncSession.execute", new_callable=AsyncMock) as mock_execute, \
          patch("sqlalchemy.ext.asyncio.AsyncSession.refresh", new_callable=AsyncMock) as mock_refresh, \
          patch("sqlalchemy.ext.asyncio.AsyncSession.commit", new_callable=AsyncMock) as mock_commit:
         
-        candidate = MockCandidate()
         mock_get.return_value = candidate
         mock_regen.return_value = candidate
+        mock_execute.return_value = mock_res
         
         response = client.post("/api/v1/candidates/c1/regenerate-certificate")
         
         assert response.status_code == 200
         assert response.json()["success"] is True
         assert response.json()["certificate_url"] == "http://example.com/cert.pdf"
-        mock_get.assert_called_once()
         mock_regen.assert_called_once()
 
 def test_bulk_soft_delete(client):

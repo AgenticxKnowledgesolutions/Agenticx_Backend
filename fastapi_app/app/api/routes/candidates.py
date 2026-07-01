@@ -218,7 +218,7 @@ async def regenerate_single_certificate(
     _: User = Depends(require_admin)
 ):
     """Admin: regenerate certificate for a single candidate."""
-    from app.models.candidate import CandidateApplication
+    from app.models.candidate_application import CandidateApplication
     stmt = select(CandidateApplication).where(CandidateApplication.id == id)
     res = await db.execute(stmt)
     candidate = res.scalar_one_or_none()
@@ -558,16 +558,16 @@ async def record_candidate_payment(
     from app.models.candidate_application import CandidateTimelineEvent
     if data.payment_type == "Admission Fee":
         candidate.admission_fee_paid = True
-        old_status = candidate.status
+        old_status = candidate.application_status
         if candidate.auto_enroll_enabled:
-            candidate.status = "Enrolled"
+            candidate.application_status = "Enrolled"
         else:
-            candidate.status = "Admission Fee Paid"
+            candidate.application_status = "Admission Fee Paid"
             
         evt_status = CandidateTimelineEvent(
             candidate_id=candidate.id,
             event_type="Status Updated",
-            description=f"Status changed from {old_status} to {candidate.status} on manual payment record",
+            description=f"Status changed from {old_status} to {candidate.application_status} on manual payment record",
             created_by=current_user.email
         )
         db.add(evt_status)
@@ -730,16 +730,16 @@ async def candidate_portal_verify_payment(
     from app.models.candidate_application import CandidateTimelineEvent
     if data.payment_type == "Admission Fee":
         candidate.admission_fee_paid = True
-        old_status = candidate.status
+        old_status = candidate.application_status
         if candidate.auto_enroll_enabled:
-            candidate.status = "Enrolled"
+            candidate.application_status = "Enrolled"
         else:
-            candidate.status = "Admission Fee Paid"
+            candidate.application_status = "Admission Fee Paid"
             
         evt_status = CandidateTimelineEvent(
             candidate_id=candidate.id,
             event_type="Status Updated",
-            description=f"Status changed from {old_status} to {candidate.status} on successful online payment",
+            description=f"Status changed from {old_status} to {candidate.application_status} on successful online payment",
             created_by=candidate.email
         )
         db.add(evt_status)
