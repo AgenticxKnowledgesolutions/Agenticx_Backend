@@ -87,3 +87,23 @@ def test_bulk_soft_delete(client):
         assert response.json()["success"] is True
         assert response.json()["detail"] == "Successfully moved 3 candidates to trash."
         mock_trash.assert_called_once()
+
+def test_candidate_otp_request_flow(client):
+    class MockCandidate:
+        id = "c1"
+        email = "test@example.com"
+        is_deleted = False
+
+    mock_res = MagicMock()
+    mock_res.scalar_one_or_none.return_value = MockCandidate()
+
+    with patch("sqlalchemy.ext.asyncio.AsyncSession.execute", new_callable=AsyncMock) as mock_execute, \
+         patch("sqlalchemy.ext.asyncio.AsyncSession.commit", new_callable=AsyncMock) as mock_commit:
+        
+        mock_execute.return_value = mock_res
+        
+        response = client.post("/api/v1/auth/candidate/otp/request", json={"email": "test@example.com"})
+        
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+        assert "OTP sent successfully." in response.json()["message"]
