@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
 
     # CORS
-    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000,https://agenticx.co.in,https://www.agenticx.co.in,https://agenticx-co-in.vercel.app,https://certificate.agenticx.co.in"
+    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000,https://agenticx.co.in,https://www.agenticx.co.in,https://agenticx-co-in.vercel.app,https://certificate.agenticx.co.in,https://candidate-portal-ruddy.vercel.app,https://candidates.agenticx.co.in"
 
     # App Settings
     APP_NAME: str = "agenticx-backend"
