@@ -352,7 +352,8 @@ class CandidateService:
     async def get_application_by_id(cls, db: AsyncSession, candidate_id: str) -> Dict[str, Any]:
         stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id).options(
             selectinload(CandidateApplication.notes),
-            selectinload(CandidateApplication.timeline_events)
+            selectinload(CandidateApplication.timeline_events),
+            selectinload(CandidateApplication.payments)
         )
         res = await db.execute(stmt)
         candidate = res.scalar_one_or_none()
@@ -364,12 +365,24 @@ class CandidateService:
         r_dict["aadhaar_number_decrypted"] = decrypted
         r_dict["aadhaar_number_masked"] = mask_aadhaar(decrypted)
         
-        # Serialize notes and timeline events
+        # Serialize notes, timeline events, and payments
         r_dict["notes"] = [
             {"id": n.id, "content": n.content, "created_by": n.created_by, "created_at": n.created_at} for n in candidate.notes
         ]
         r_dict["timeline_events"] = [
             {"id": t.id, "event_type": t.event_type, "description": t.description, "created_by": t.created_by, "created_at": t.created_at} for t in candidate.timeline_events
+        ]
+        r_dict["payments"] = [
+            {
+                "id": p.id,
+                "amount": p.amount,
+                "payment_type": p.payment_type,
+                "payment_method": p.payment_method,
+                "status": p.status,
+                "transaction_id": p.transaction_id,
+                "payment_date": p.payment_date,
+                "created_at": p.created_at
+            } for p in candidate.payments
         ]
         return r_dict
 

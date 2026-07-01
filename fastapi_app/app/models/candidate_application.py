@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, Text, Boolean, Integer, ForeignKey, func
+from sqlalchemy import String, DateTime, Text, Boolean, Integer, ForeignKey, Float, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
@@ -70,6 +70,20 @@ class CandidateApplication(Base):
     course_duration: Mapped[str | None] = mapped_column(String(100), nullable=True)
     performance: Mapped[str | None] = mapped_column(String(100), nullable=True)
     program_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Offer Management & Financial Fields
+    standard_course_fee: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    scholarship_amount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    special_discount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    corporate_discount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    promo_discount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    booking_amount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    final_payable_amount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    offer_remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    offer_expiry_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    admission_fee_amount: Mapped[float] = mapped_column(Float, default=250.0, nullable=False)
+    admission_fee_paid: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    auto_enroll_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     
     # Import references
     import_batch_id: Mapped[str | None] = mapped_column(String, ForeignKey("candidate_import_batches.id"), nullable=True)
@@ -86,6 +100,9 @@ class CandidateApplication(Base):
     )
     timeline_events: Mapped[list["CandidateTimelineEvent"]] = relationship(
         "CandidateTimelineEvent", back_populates="candidate", cascade="all, delete-orphan", order_by="desc(CandidateTimelineEvent.created_at)"
+    )
+    payments: Mapped[list["CandidatePayment"]] = relationship(
+        "CandidatePayment", back_populates="candidate", cascade="all, delete-orphan", order_by="desc(CandidatePayment.payment_date)"
     )
 
 

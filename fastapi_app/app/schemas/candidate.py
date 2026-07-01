@@ -57,3 +57,36 @@ class BulkDeleteCandidatesPayload(BaseModel):
 
 class BulkRegenerateCertificatesPayload(BaseModel):
     candidate_ids: List[str]
+
+
+class CandidateOfferUpdate(BaseModel):
+    standard_course_fee: float = Field(..., ge=0)
+    scholarship_amount: float = Field(0.0, ge=0)
+    special_discount: float = Field(0.0, ge=0)
+    corporate_discount: float = Field(0.0, ge=0)
+    promo_discount: float = Field(0.0, ge=0)
+    booking_amount: float = Field(0.0, ge=0)
+    offer_remarks: Optional[str] = None
+    offer_expiry_date: Optional[datetime] = None
+    admission_fee_amount: float = Field(250.0, ge=0)
+    auto_enroll_enabled: bool = True
+
+
+class RecordOfflinePayment(BaseModel):
+    amount: float = Field(..., gt=0)
+    payment_type: str = Field(..., max_length=50)  # 'Admission Fee', 'Booking Amount', 'Installment'
+    payment_method: str = Field(..., max_length=50)  # 'Cash', 'UPI', 'Bank Transfer', 'Razorpay'
+    transaction_id: Optional[str] = Field(None, max_length=255)
+
+
+class CreateOrderRequest(BaseModel):
+    amount: float = Field(..., gt=0)
+    payment_type: str = Field(..., max_length=50)
+
+
+class VerifyPaymentRequest(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+    payment_type: str
+    amount: float

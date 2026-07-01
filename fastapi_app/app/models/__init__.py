@@ -11,6 +11,8 @@ from app.models.lead_interaction import LeadInteraction
 from app.models.lead_token import LeadToken
 from app.models.company_settings import CompanySettings
 from app.models.candidate_application import CandidateImportBatch, CandidateApplication, CandidateNote, CandidateTimelineEvent
+from app.models.candidate_otp import CandidateOTP
+from app.models.candidate_payment import CandidatePayment
 from app.models.admin_notification import AdminNotification
 from app.models.job import Job, JobApplication
 
@@ -30,6 +32,8 @@ __all__ = [
     "CandidateApplication",
     "CandidateNote",
     "CandidateTimelineEvent",
+    "CandidateOTP",
+    "CandidatePayment",
     "AdminNotification",
     "Job",
     "JobApplication"

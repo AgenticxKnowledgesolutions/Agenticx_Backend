@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "https://www.agenticx.co.in"
     CERTIFICATE_FRONTEND_URL: str = "https://certificate.agenticx.co.in"
 
+    # Razorpay
+    RAZORPAY_KEY_ID: str = ""
+    RAZORPAY_KEY_SECRET: str = ""
+
     # JWT
     SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 120

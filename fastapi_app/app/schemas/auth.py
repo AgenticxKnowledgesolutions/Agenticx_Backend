@@ -24,3 +24,12 @@ class UserResponse(BaseModel):
     is_active: bool
 
     model_config = {"from_attributes": True}
+
+
+class CandidateOTPRequest(BaseModel):
+    email: EmailStr
+
+
+class CandidateOTPVerify(BaseModel):
+    email: EmailStr
+    otp: str

@@ -454,3 +454,303 @@ async def permanent_delete_candidate(
     if not success:
         raise HTTPException(status_code=404, detail="Candidate not found")
     return {"success": True, "detail": "Candidate permanently deleted"}
+
+
+# Candidate Portal & Offer Management Endpoints
+
+import hmac
+import hashlib
+import base64
+import uuid
+import logging
+import httpx
+from sqlalchemy.orm import selectinload
+from app.deps import get_current_candidate
+from app.models.candidate_payment import CandidatePayment
+from app.schemas.candidate import (
+    CandidateOfferUpdate,
+    RecordOfflinePayment,
+    CreateOrderRequest,
+    VerifyPaymentRequest
+)
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+@router.put("/{id}/offer")
+async def update_candidate_offer(
+    id: str,
+    data: CandidateOfferUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin: Update candidate financial offer and settings."""
+    stmt = select(CandidateApplication).where(CandidateApplication.id == id, CandidateApplication.is_deleted == False)
+    res = await db.execute(stmt)
+    candidate = res.scalar_one_or_none()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+        
+    candidate.standard_course_fee = data.standard_course_fee
+    candidate.scholarship_amount = data.scholarship_amount
+    candidate.special_discount = data.special_discount
+    candidate.corporate_discount = data.corporate_discount
+    candidate.promo_discount = data.promo_discount
+    candidate.booking_amount = data.booking_amount
+    candidate.offer_remarks = data.offer_remarks
+    candidate.offer_expiry_date = data.offer_expiry_date
+    candidate.admission_fee_amount = data.admission_fee_amount
+    candidate.auto_enroll_enabled = data.auto_enroll_enabled
+    
+    # Calculate final payable amount
+    candidate.final_payable_amount = max(
+        0.0,
+        data.standard_course_fee - (
+            data.scholarship_amount +
+            data.special_discount +
+            data.corporate_discount +
+            data.promo_discount
+        )
+    )
+    
+    # Log timeline event
+    from app.models.candidate_application import CandidateTimelineEvent
+    evt = CandidateTimelineEvent(
+        candidate_id=candidate.id,
+        event_type="Offer Updated",
+        description=f"Financial offer updated by admin: Course Fee ₹{candidate.standard_course_fee}, Final Payable ₹{candidate.final_payable_amount}",
+        created_by=current_user.email
+    )
+    db.add(evt)
+    await db.commit()
+    
+    return await CandidateService.get_application_by_id(db, id)
+
+
+@router.post("/{id}/record-payment")
+async def record_candidate_payment(
+    id: str,
+    data: RecordOfflinePayment,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin: Record an offline payment (Cash/UPI/Bank Transfer) for a candidate."""
+    stmt = select(CandidateApplication).where(CandidateApplication.id == id, CandidateApplication.is_deleted == False)
+    res = await db.execute(stmt)
+    candidate = res.scalar_one_or_none()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+        
+    # Record payment
+    payment = CandidatePayment(
+        candidate_id=candidate.id,
+        amount=data.amount,
+        payment_type=data.payment_type,
+        payment_method=data.payment_method,
+        status="Paid",
+        transaction_id=data.transaction_id,
+        payment_date=datetime.now()
+    )
+    db.add(payment)
+    
+    # Update candidate status
+    from app.models.candidate_application import CandidateTimelineEvent
+    if data.payment_type == "Admission Fee":
+        candidate.admission_fee_paid = True
+        old_status = candidate.status
+        if candidate.auto_enroll_enabled:
+            candidate.status = "Enrolled"
+        else:
+            candidate.status = "Admission Fee Paid"
+            
+        evt_status = CandidateTimelineEvent(
+            candidate_id=candidate.id,
+            event_type="Status Updated",
+            description=f"Status changed from {old_status} to {candidate.status} on manual payment record",
+            created_by=current_user.email
+        )
+        db.add(evt_status)
+        
+    evt_pay = CandidateTimelineEvent(
+        candidate_id=candidate.id,
+        event_type="Payment Recorded",
+        description=f"Manual payment of ₹{data.amount} ({data.payment_type}) via {data.payment_method} recorded.",
+        created_by=current_user.email
+    )
+    db.add(evt_pay)
+    await db.commit()
+    
+    return await CandidateService.get_application_by_id(db, id)
+
+
+@router.get("/portal/profile")
+async def get_candidate_portal_profile(
+    db: AsyncSession = Depends(get_db),
+    current_candidate: CandidateApplication = Depends(get_current_candidate)
+):
+    """Candidate: Get logged-in candidate profile, financial offers, and payment logs."""
+    return await CandidateService.get_application_by_id(db, current_candidate.id)
+
+
+@router.post("/portal/upload-document")
+async def upload_candidate_portal_document(
+    doc_type: str = Query(..., description="Document type: cv, photo, aadhaar"),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_candidate: CandidateApplication = Depends(get_current_candidate)
+):
+    """Candidate: Upload/replace own document (CV, Photo, Aadhaar)."""
+    if doc_type not in ["cv", "photo", "aadhaar"]:
+        raise HTTPException(status_code=400, detail="Invalid document type for candidate self-service upload")
+        
+    content = await file.read()
+    max_size = 20 * 1024 * 1024 if doc_type == "cv" or file.content_type == "application/pdf" else 5 * 1024 * 1024
+    if len(content) > max_size:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File exceeds maximum allowed size ({max_size // (1024 * 1024)}MB)."
+        )
+        
+    candidate = await CandidateService.upload_document(
+        db, current_candidate.id, doc_type, content, file.filename or "", file.content_type or "application/octet-stream", user_email=current_candidate.email
+    )
+    field_mapping = {
+        "cv": "cv_url",
+        "photo": "photo_url",
+        "aadhaar": "aadhaar_url"
+    }
+    url = getattr(candidate, field_mapping[doc_type])
+    return {"success": True, "url": url, "document_status": candidate.document_status}
+
+
+@router.post("/portal/payments/create-order")
+async def candidate_portal_create_payment_order(
+    data: CreateOrderRequest,
+    current_candidate: CandidateApplication = Depends(get_current_candidate)
+):
+    """Candidate: Generate a Razorpay or mock order ID for payment verification."""
+    amount = data.amount
+    amount_in_paise = int(amount * 100)
+    key_id = settings.RAZORPAY_KEY_ID
+    key_secret = settings.RAZORPAY_KEY_SECRET
+    
+    if not key_id or not key_secret:
+        return {
+            "success": True,
+            "order_id": f"order_mock_{uuid.uuid4().hex[:12]}",
+            "amount": amount,
+            "currency": "INR",
+            "key": "mock_key_id",
+            "sandbox": True
+        }
+        
+    try:
+        url = "https://api.razorpay.com/v1/orders"
+        auth_str = f"{key_id}:{key_secret}"
+        auth_bytes = auth_str.encode('ascii')
+        auth_b64 = base64.b64encode(auth_bytes).decode('ascii')
+        headers = {
+            "Authorization": f"Basic {auth_b64}",
+            "Content-Type": "application/json"
+        }
+        order_data = {
+            "amount": amount_in_paise,
+            "currency": "INR",
+            "receipt": f"rcpt_{uuid.uuid4().hex[:12]}"
+        }
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=order_data, headers=headers, timeout=10.0)
+            if response.status_code == 200:
+                resp_json = response.json()
+                return {
+                    "success": True,
+                    "order_id": resp_json.get("id"),
+                    "amount": amount,
+                    "currency": "INR",
+                    "key": key_id,
+                    "sandbox": False
+                }
+            else:
+                logger.error(f"Razorpay order creation failed: {response.text}")
+                raise HTTPException(status_code=500, detail="Razorpay order creation failed")
+    except Exception as e:
+        logger.error(f"Exception creating Razorpay order: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to connect to payment gateway")
+
+
+@router.post("/portal/payments/verify")
+async def candidate_portal_verify_payment(
+    data: VerifyPaymentRequest,
+    db: AsyncSession = Depends(get_db),
+    current_candidate: CandidateApplication = Depends(get_current_candidate)
+):
+    """Candidate: Verify Razorpay webhook signature and record transaction."""
+    stmt = select(CandidateApplication).where(CandidateApplication.id == current_candidate.id)
+    res = await db.execute(stmt)
+    candidate = res.scalar_one_or_none()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+        
+    # Signature verification
+    is_valid = False
+    if data.razorpay_order_id.startswith("order_mock_"):
+        is_valid = True
+    else:
+        key_secret = settings.RAZORPAY_KEY_SECRET
+        if not key_secret:
+            raise HTTPException(status_code=500, detail="Payment gateway credentials missing.")
+            
+        msg = f"{data.razorpay_order_id}|{data.razorpay_payment_id}"
+        generated_signature = hmac.new(
+            key_secret.encode('utf-8'),
+            msg.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+        
+        if generated_signature == data.razorpay_signature:
+            is_valid = True
+            
+    if not is_valid:
+        raise HTTPException(status_code=400, detail="Payment signature verification failed.")
+        
+    # Record payment
+    payment = CandidatePayment(
+        candidate_id=candidate.id,
+        amount=data.amount,
+        payment_type=data.payment_type,
+        payment_method="Razorpay",
+        status="Paid",
+        transaction_id=data.razorpay_payment_id,
+        payment_date=datetime.now()
+    )
+    db.add(payment)
+    
+    # Status progression
+    from app.models.candidate_application import CandidateTimelineEvent
+    if data.payment_type == "Admission Fee":
+        candidate.admission_fee_paid = True
+        old_status = candidate.status
+        if candidate.auto_enroll_enabled:
+            candidate.status = "Enrolled"
+        else:
+            candidate.status = "Admission Fee Paid"
+            
+        evt_status = CandidateTimelineEvent(
+            candidate_id=candidate.id,
+            event_type="Status Updated",
+            description=f"Status changed from {old_status} to {candidate.status} on successful online payment",
+            created_by=candidate.email
+        )
+        db.add(evt_status)
+        
+    evt_pay = CandidateTimelineEvent(
+        candidate_id=candidate.id,
+        event_type="Payment Successful",
+        description=f"Online payment of ₹{data.amount} ({data.payment_type}) via Razorpay verified successfully.",
+        created_by=candidate.email
+    )
+    db.add(evt_pay)
+    await db.commit()
+    
+    return {"success": True, "detail": f"Payment of ₹{data.amount} verified successfully."}
