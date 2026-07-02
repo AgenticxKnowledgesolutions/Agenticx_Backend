@@ -219,6 +219,85 @@ class CandidateService:
         await db.refresh(candidate)
         return candidate
 
+    @classmethod
+    async def update_existing_candidate_application(
+        cls, db: AsyncSession, candidate: CandidateApplication, data: Dict[str, Any], created_by: Optional[str] = "Website"
+    ) -> CandidateApplication:
+        # Aadhaar Encryption
+        aadhaar_plain = data.get("aadhaar_number")
+        if aadhaar_plain:
+            candidate.aadhaar_number_encrypted = encrypt_aadhaar(aadhaar_plain)
+            
+        # Update other fields if they are in data and not None
+        for key in [
+            "full_name", "email", "phone", "whatsapp_number", "address", 
+            "emergency_contact", "qualification", "blood_group", "course_applied", 
+            "mode_of_learning", "college_name", "date_of_birth", "gender", 
+            "reference_details", "languages_known", "parent_guardian_name", 
+            "parent_guardian_occupation", "registration_transaction_id"
+        ]:
+            if key in data and data[key] is not None:
+                val = data[key]
+                if isinstance(val, str):
+                    val = val.strip()
+                if key == "email" and val:
+                    val = val.lower()
+                setattr(candidate, key, val)
+
+        candidate.application_status = data.get("application_status", "Submitted")
+        candidate.updated_at = datetime.utcnow()
+        candidate.document_status = cls.calculate_document_status(candidate)
+
+        if data.get("remarks"):
+            await cls.add_candidate_note(
+                db,
+                candidate.id,
+                f"[Admission remarks]: {data.get('remarks')}",
+                created_by=created_by
+            )
+        
+        # Update associated lead to Converted status if lead_id is provided
+        lead_id = candidate.lead_id or data.get("lead_id")
+        if lead_id:
+            from app.services.lead_service import add_timeline_event as add_lead_timeline_event
+            lead_stmt = select(Lead).where(Lead.id == lead_id)
+            lead_res = await db.execute(lead_stmt)
+            lead = lead_res.scalars().first()
+            if lead and lead.status != "Converted":
+                lead.status = "Converted"
+                await add_lead_timeline_event(
+                    db,
+                    lead_id=lead_id,
+                    event_type="Converted",
+                    description="Lead converted to candidate via admission form submission.",
+                    created_by="System"
+                )
+                
+        await db.flush()
+
+        # Log timeline event
+        await cls.add_timeline_event(
+            db,
+            candidate.id,
+            "Submitted",
+            f"Candidate application updated/completed successfully by {created_by}.",
+            created_by
+        )
+
+        # Trigger internal admin notification
+        notification = AdminNotification(
+            id=str(uuid.uuid4()),
+            title="Candidate Application Completed",
+            message=f"Application {candidate.application_number} completed by {candidate.full_name} for course {candidate.course_applied}.",
+            notification_type="new_application",
+            is_read=False,
+            created_at=datetime.utcnow()
+        )
+        db.add(notification)
+        await db.commit()
+        await db.refresh(candidate)
+        return candidate
+
     @staticmethod
     async def add_timeline_event(
         db: AsyncSession, candidate_id: str, event_type: str, description: str, created_by: Optional[str] = "Admin"

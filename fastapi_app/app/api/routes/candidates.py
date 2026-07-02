@@ -14,7 +14,7 @@ from app.models.admin_notification import AdminNotification
 from app.models.lead_token import LeadToken
 from app.models.lead import Lead
 from app.models.candidate_application import CandidateApplication
-from sqlalchemy import select, update
+from sqlalchemy import select, update, or_
 
 router = APIRouter(prefix="/candidates", tags=["candidates"])
 optional_bearer = HTTPBearer(auto_error=False)
@@ -25,35 +25,68 @@ async def validate_conversion_token(
     token: str = Query(..., description="Single-use conversion token from email link"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Public: validate a single-use lead conversion token and return lead details.
+    """Public: validate a single-use lead conversion token and return lead/candidate details.
     
-    Returns lead name, email, phone, course for pre-filling the apply form.
-    Returns 400 if the token is not found or has already been used.
+    Returns details for pre-filling the apply form.
+    Returns 400 if the token is not found, has already been used, or the application is already completed.
     """
+    # 1. Check LeadToken first
     stmt = select(LeadToken).where(LeadToken.token == token)
     result = await db.execute(stmt)
     lead_token = result.scalar_one_or_none()
 
-    if not lead_token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired application link. Please contact the admissions office."
-        )
-    if lead_token.used:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This application link has already been used. Each link can only be used once."
-        )
+    existing_candidate = None
+    lead = None
 
-    # Fetch associated lead details for pre-filling the form
-    lead_stmt = select(Lead).where(Lead.id == lead_token.lead_id)
-    lead_res = await db.execute(lead_stmt)
-    lead = lead_res.scalar_one_or_none()
+    if lead_token:
+        if lead_token.used:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Your application has already been submitted. Please contact AgenticX if you need to modify your information."
+            )
+        
+        # Check if candidate application already exists for this lead
+        cand_stmt = select(CandidateApplication).where(
+            CandidateApplication.lead_id == lead_token.lead_id,
+            CandidateApplication.is_deleted == False
+        )
+        cand_res = await db.execute(cand_stmt)
+        existing_candidate = cand_res.scalar_one_or_none()
+    else:
+        # Check if the token matches CandidateApplication.candidate_token directly
+        cand_stmt = select(CandidateApplication).where(
+            CandidateApplication.candidate_token == token,
+            CandidateApplication.is_deleted == False
+        )
+        cand_res = await db.execute(cand_stmt)
+        existing_candidate = cand_res.scalar_one_or_none()
+
+    if existing_candidate:
+        # If candidate already has DOB, they completed the form
+        if existing_candidate.date_of_birth is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Your application has already been submitted. Please contact AgenticX if you need to modify your information."
+            )
+        
+        return {
+            "valid": True,
+            "name": existing_candidate.full_name,
+            "email": existing_candidate.email,
+            "phone": existing_candidate.phone or "",
+            "course": existing_candidate.course_applied or "",
+        }
+
+    # Fetch associated lead details for pre-filling the form if no existing candidate
+    if lead_token:
+        lead_stmt = select(Lead).where(Lead.id == lead_token.lead_id)
+        lead_res = await db.execute(lead_stmt)
+        lead = lead_res.scalar_one_or_none()
 
     if not lead:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Associated lead record not found."
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired application link. Please contact the admissions office."
         )
 
     return {
@@ -63,6 +96,7 @@ async def validate_conversion_token(
         "phone": lead.phone or "",
         "course": lead.interested_course or "",
     }
+
 
 @router.post("/apply", status_code=status.HTTP_201_CREATED)
 async def apply_candidate(
@@ -76,6 +110,7 @@ async def apply_candidate(
     """
     token_value = data.token  # Optional[str]
     resolved_lead_token = None
+    existing_candidate = None
 
     if token_value:
         # Validate the token
@@ -83,31 +118,69 @@ async def apply_candidate(
         result = await db.execute(stmt)
         resolved_lead_token = result.scalar_one_or_none()
 
-        if not resolved_lead_token:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid application link. Please contact the admissions office."
+        if resolved_lead_token:
+            if resolved_lead_token.used:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Your application has already been submitted. Please contact AgenticX if you need to modify your information."
+                )
+            
+            # Find candidate by lead_id from LeadToken
+            cand_stmt = select(CandidateApplication).where(
+                CandidateApplication.lead_id == resolved_lead_token.lead_id,
+                CandidateApplication.is_deleted == False
             )
-        if resolved_lead_token.used:
+            cand_res = await db.execute(cand_stmt)
+            existing_candidate = cand_res.scalar_one_or_none()
+        else:
+            # Check by CandidateApplication.candidate_token directly
+            cand_stmt = select(CandidateApplication).where(
+                CandidateApplication.candidate_token == token_value,
+                CandidateApplication.is_deleted == False
+            )
+            cand_res = await db.execute(cand_stmt)
+            existing_candidate = cand_res.scalar_one_or_none()
+
+    if not existing_candidate:
+        # Check by email or phone to catch duplicate key constraint violations
+        email = data.email.strip().lower()
+        phone = data.phone.strip()
+        stmt = select(CandidateApplication).where(
+            or_(
+                CandidateApplication.email.ilike(email),
+                CandidateApplication.phone == phone
+            ),
+            CandidateApplication.is_deleted == False
+        )
+        result = await db.execute(stmt)
+        existing_candidate = result.scalar_one_or_none()
+
+    if existing_candidate:
+        if existing_candidate.date_of_birth is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="This application link has already been used."
+                detail="Your application has already been submitted. Please contact AgenticX if you need to modify your information."
             )
 
     try:
         payload = data.model_dump()
-        # If token was valid, link lead_id from token (authoritative source)
         if resolved_lead_token:
             payload["lead_id"] = resolved_lead_token.lead_id
 
-        candidate = await CandidateService.create_candidate_application(
-            db, payload, created_by="Website Form"
-        )
+        if existing_candidate:
+            # Update existing candidate record
+            candidate = await CandidateService.update_existing_candidate_application(
+                db, existing_candidate, payload, created_by="Website Form"
+            )
+        else:
+            # Create new candidate application
+            candidate = await CandidateService.create_candidate_application(
+                db, payload, created_by="Website Form"
+            )
 
-        # Mark token as used and delete/invalidate it AFTER successful candidate creation
+        # Mark token as used instead of deleting it
         if resolved_lead_token:
             resolved_lead_token.used = True
-            await db.delete(resolved_lead_token)
             await db.commit()
 
         return {"success": True, "application_number": candidate.application_number, "id": candidate.id}

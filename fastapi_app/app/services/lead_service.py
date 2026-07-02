@@ -237,16 +237,12 @@ async def send_lead_qualification_email(db: AsyncSession, lead: Lead):
     frontend_url = settings.FRONTEND_URL or "http://localhost:5173"
     apply_url = f"{frontend_url.rstrip('/')}/apply?{urlencode(params)}"
     
-    # Send email
-    sent = EmailService.send_admission_link(lead.email, lead.name, apply_url)
+    # Backend email sending for admission link is disabled (handled exclusively by frontend EmailJS)
+    logger = logging.getLogger("app.services.lead_service")
+    logger.info(f"Skipping backend email for qualified lead {lead.id}. Handled by frontend EmailJS.")
     
     # Log timeline event
-    description = f"Generated candidate admission form link: {apply_url}"
-    if sent:
-        description = "Admission form link emailed to student. " + description
-    else:
-        description = "Failed to send email/SMTP not configured. " + description
-        
+    description = f"Lead qualified. Candidate admission form link ready: {apply_url} (Email sending is handled by frontend EmailJS)"
     await add_timeline_event(db, lead.id, "Qualified", description, "System")
 
 async def bulk_update_leads(

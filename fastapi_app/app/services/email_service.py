@@ -43,50 +43,8 @@ class EmailService:
 
     @classmethod
     def send_admission_link(cls, to_email: str, name: str, apply_url: str) -> bool:
-        subject = "Complete Your Candidate Admission Form - Agenticx"
-        body = f"""Hi {name},
-
-Thank you for your interest. You have been qualified for next steps.
-
-Please complete your candidate admission form by clicking the link below:
-{apply_url}
-
-Best regards,
-Agenticx Team
-"""
-        if settings.RESEND_API_KEY:
-            return cls.send_via_resend(to_email, subject, body)
-
-        if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
-            logger.warning(
-                f"[SMTP NOT CONFIG] Would send admission form email to {to_email}.\n"
-                f"URL: {apply_url}"
-            )
-            return False
-            
-        try:
-            msg = MIMEMultipart()
-            msg['From'] = settings.SMTP_FROM or settings.SMTP_USER
-            msg['To'] = to_email
-            msg['Subject'] = subject
-            msg.attach(MIMEText(body, 'plain'))
-            
-            # Use SSL/TLS or STARTTLS depending on port
-            if settings.SMTP_PORT == 465:
-                with smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT) as server:
-                    server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                    server.send_message(msg)
-            else:
-                with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
-                    server.starttls()
-                    server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                    server.send_message(msg)
-                
-            logger.info(f"Admission form email successfully sent to {to_email}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send email to {to_email}: {str(e)}")
-            return False
+        logger.warning(f"send_admission_link called for {to_email} but it is disabled. Frontend EmailJS is used instead.")
+        return False
 
     @classmethod
     def send_otp_email(cls, to_email: str, otp: str) -> bool:
