@@ -157,7 +157,8 @@ class CandidateService:
                 program_type = program.program_type
                 mode_of_learning = program.mode or mode_of_learning
                 course_duration = program.duration or course_duration
-                standard_course_fee = float(program.standard_fee)
+                if program.standard_fee and float(program.standard_fee) > 0.0:
+                    standard_course_fee = float(program.standard_fee)
         elif course_applied:
             result_p = await db.execute(select(Program).where(Program.name == course_applied, Program.is_deleted == False))
             program = result_p.scalar_one_or_none()
@@ -166,7 +167,8 @@ class CandidateService:
                 program_type = program.program_type
                 mode_of_learning = program.mode or mode_of_learning
                 course_duration = program.duration or course_duration
-                standard_course_fee = float(program.standard_fee)
+                if program.standard_fee and float(program.standard_fee) > 0.0:
+                    standard_course_fee = float(program.standard_fee)
 
         # Aadhaar Encryption
         aadhaar_plain = data.get("aadhaar_number")
@@ -289,10 +291,15 @@ class CandidateService:
                 candidate.program_type = program.program_type
                 candidate.mode_of_learning = program.mode or candidate.mode_of_learning
                 candidate.course_duration = program.duration or candidate.course_duration
-                candidate.standard_course_fee = float(program.standard_fee)
+                
+                if program.standard_fee and float(program.standard_fee) > 0.0:
+                    candidate.standard_course_fee = float(program.standard_fee)
+                elif not candidate.standard_course_fee:
+                    candidate.standard_course_fee = 0.0
+                
                 candidate.final_payable_amount = max(
                     0.0,
-                    float(program.standard_fee) - (
+                    float(candidate.standard_course_fee) - (
                         (candidate.scholarship_amount or 0.0) +
                         (candidate.special_discount or 0.0) +
                         (candidate.corporate_discount or 0.0) +
@@ -811,11 +818,16 @@ class CandidateService:
                         candidate.course_applied = prog.name
                         candidate.program_type = prog.program_type
                         candidate.course_duration = prog.duration
-                        candidate.standard_course_fee = prog.standard_fee
+                        
+                        if prog.standard_fee and float(prog.standard_fee) > 0.0:
+                            candidate.standard_course_fee = float(prog.standard_fee)
+                        elif not candidate.standard_course_fee:
+                            candidate.standard_course_fee = 0.0
+                            
                         candidate.mode_of_learning = prog.mode
                         candidate.final_payable_amount = max(
                             0.0,
-                            float(prog.standard_fee) - (
+                            float(candidate.standard_course_fee) - (
                                 (candidate.scholarship_amount or 0.0) +
                                 (candidate.special_discount or 0.0) +
                                 (candidate.corporate_discount or 0.0) +
@@ -830,10 +842,15 @@ class CandidateService:
                     candidate.program_id = prog.id
                     candidate.program_type = prog.program_type
                     candidate.course_duration = prog.duration
-                    candidate.standard_course_fee = prog.standard_fee
+                    
+                    if prog.standard_fee and float(prog.standard_fee) > 0.0:
+                        candidate.standard_course_fee = float(prog.standard_fee)
+                    elif not candidate.standard_course_fee:
+                        candidate.standard_course_fee = 0.0
+                        
                     candidate.final_payable_amount = max(
                         0.0,
-                        float(prog.standard_fee) - (
+                        float(candidate.standard_course_fee) - (
                             (candidate.scholarship_amount or 0.0) +
                             (candidate.special_discount or 0.0) +
                             (candidate.corporate_discount or 0.0) +

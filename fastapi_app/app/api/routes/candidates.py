@@ -571,14 +571,16 @@ async def update_candidate_offer(
             raise HTTPException(status_code=404, detail="Candidate not found")
             
         standard_fee = data.standard_course_fee
-        if candidate.program_id:
-            from app.models.program import Program
-            prog_res = await db.execute(select(Program).where(Program.id == candidate.program_id))
-            prog = prog_res.scalar_one_or_none()
-            if prog:
-                standard_fee = float(prog.standard_fee)
-        elif standard_fee is None:
-            standard_fee = candidate.standard_course_fee or 0.0
+        if standard_fee is None:
+            if candidate.program_id:
+                from app.models.program import Program
+                prog_res = await db.execute(select(Program).where(Program.id == candidate.program_id))
+                prog = prog_res.scalar_one_or_none()
+                if prog and prog.standard_fee and float(prog.standard_fee) > 0.0:
+                    standard_fee = float(prog.standard_fee)
+            
+            if standard_fee is None:
+                standard_fee = candidate.standard_course_fee or 0.0
 
         candidate.standard_course_fee = standard_fee
         candidate.scholarship_amount = data.scholarship_amount
