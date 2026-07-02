@@ -5,6 +5,7 @@ from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from app.models.course import Course, TechStack, CurriculumMonth, CurriculumModule
 from app.schemas.course import CourseCreate, CourseUpdate, CourseResponse, CourseStats, TechStackItem, CurriculumMonth as CurriculumMonthSchema, ModuleData
+from app.services import program_service
 
 
 def _eager_options():
@@ -85,6 +86,7 @@ async def create_course(db: AsyncSession, data: CourseCreate) -> CourseResponse:
         course.curriculum.append(cm)
 
     db.add(course)
+    await program_service.sync_course_to_program(db, course)
     await db.commit()
     result = await db.execute(
         select(Course).where(Course.id == course.id).options(*_eager_options())
@@ -112,6 +114,7 @@ async def update_course(db: AsyncSession, course: Course, data: CourseUpdate) ->
                 cm.modules.append(CurriculumModule(title=mod.title, description=mod.description, order=mod.order or j))
             course.curriculum.append(cm)
 
+    await program_service.sync_course_to_program(db, course)
     await db.commit()
     result = await db.execute(
         select(Course).where(Course.id == course.id).options(*_eager_options())
@@ -123,6 +126,7 @@ async def delete_course(db: AsyncSession, course: Course, user_email: Optional[s
     course.is_deleted = True
     course.deleted_at = datetime.utcnow()
     course.deleted_by = user_email
+    await program_service.sync_course_to_program(db, course)
     await db.commit()
 
 
@@ -140,10 +144,16 @@ async def restore_course(db: AsyncSession, course: Course) -> CourseResponse:
     course.is_deleted = False
     course.deleted_at = None
     course.deleted_by = None
+    await program_service.sync_course_to_program(db, course)
     await db.commit()
     return _to_response(course)
 
 
 async def hard_delete_course(db: AsyncSession, course: Course) -> None:
+    from app.models.program import Program
+    p_result = await db.execute(select(Program).where(Program.id == course.id))
+    program = p_result.scalar_one_or_none()
+    if program:
+        await db.delete(program)
     await db.delete(course)
     await db.commit()

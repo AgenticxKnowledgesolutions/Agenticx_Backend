@@ -168,6 +168,27 @@ def get_course_details(course_name: str) -> dict:
             "domain": f"Webinar: {topic}"
         }
 
+    # 1.5 Check for Faculty Development Programme (FDP)
+    if "fdp" in course_name_lower or "faculty development" in course_name_lower:
+        topic = "Academic and Research Methodologies"
+        if "fdp on" in course_name_lower:
+            parts = course_name_clean.split("on", 1)
+            if len(parts) > 1 and parts[1].strip():
+                topic = parts[1].strip()
+        elif "faculty development programme on" in course_name_lower:
+            parts = course_name_clean.split("on", 1)
+            if len(parts) > 1 and parts[1].strip():
+                topic = parts[1].strip()
+        elif "fdp:" in course_name_lower:
+            parts = course_name_clean.split(":", 1)
+            if len(parts) > 1 and parts[1].strip():
+                topic = parts[1].strip()
+                
+        return {
+            "topics": f"Advanced Pedagogy, Curriculum Design, Practical Training, Research Methodology, and Emerging Technologies in {topic}",
+            "domain": f"Faculty Development Programme: {topic}"
+        }
+
     # 2. Check for Workshop
     if "workshop" in course_name_lower or "bootcamp" in course_name_lower:
         topic = "Practical Technology Labs"
@@ -265,6 +286,31 @@ class CertificateService:
         course_applied = candidate.course_applied or "Professional Certification Program"
         course_details = get_course_details(course_applied)
 
+        # Resolve Program and template
+        from sqlalchemy import select
+        from app.models.program import Program
+        cert_template = "completion"
+        program_type = candidate.program_type or "Course"
+        
+        if candidate.program_id:
+            result_p = await db.execute(select(Program).where(Program.id == candidate.program_id))
+            program = result_p.scalar_one_or_none()
+            if program:
+                cert_template = program.certificate_template or "completion"
+                program_type = program.program_type or program_type
+        else:
+            # Fallback for existing records based on program type or name
+            prog_type_lower = (program_type or "").lower()
+            course_lower = course_applied.lower()
+            if (
+                "fdp" in course_lower or
+                "faculty development" in course_lower or
+                "webinar" in course_lower or
+                "workshop" in course_lower or
+                prog_type_lower in ["workshop", "webinar", "fdp", "faculty development programme"]
+            ):
+                cert_template = "participation"
+
         # Map candidate details to template data format
         data = {
             "certificateId": candidate.application_number or candidate.certificate_id,
@@ -281,7 +327,7 @@ class CertificateService:
             "endDate": comp_date.strftime("%d/%m/%Y"),
             "completionDate": completion_date_str,
             "performance": candidate.performance,
-            "programType": candidate.program_type or "Course",
+            "programType": program_type,
         }
 
         # Draw PDF using ReportLab in-memory
@@ -350,6 +396,10 @@ class CertificateService:
         c.setFillColor(NAVY)
         c.setFont("Helvetica-Bold", 19)
         title = "CERTIFICATE OF COMPLETION"
+        if cert_template == "participation":
+            title = "CERTIFICATE OF PARTICIPATION"
+        elif cert_template == "achievement":
+            title = "CERTIFICATE OF ACHIEVEMENT"
         c.drawCentredString(width / 2, title_y, title)
 
         c.setFillColor(TEAL)
@@ -359,12 +409,22 @@ class CertificateService:
 
         # ===================== Body paragraph =====================
         body_y = title_y - 16 * mm
-        body = (
-            f"This is to certify that <b>{data['recipientName']}</b> has successfully completed the "
-            f"<b>{data['courseName']}</b>, covering {data['courseTopics']} at {data['organizationName']} "
-            f"on {data['completionDate']}. {pronoun['subject']} actively participated throughout the "
-            f"program with full dedication and demonstrated a strong commitment to learning."
-        )
+        if cert_template == "participation":
+            start_date_str = candidate.course_start_date.strftime("%d %B %Y") if candidate.course_start_date else data["startDate"]
+            end_date_str = comp_date.strftime("%d %B %Y")
+            body = (
+                f"This is to certify that <b>{data['recipientName']}</b> has successfully participated in the "
+                f"<b>{data['courseName']}</b> organized by <b>{data['organizationName']}</b> held from "
+                f"<b>{start_date_str}</b> to <b>{end_date_str}</b>. We appreciate your active participation and "
+                f"wish you continued success in your academic and professional journey."
+            )
+        else:
+            body = (
+                f"This is to certify that <b>{data['recipientName']}</b> has successfully completed the "
+                f"<b>{data['courseName']}</b>, covering {data['courseTopics']} at {data['organizationName']} "
+                f"on {data['completionDate']}. {pronoun['subject']} actively participated throughout the "
+                f"program with full dedication and demonstrated a strong commitment to learning."
+            )
         
         from reportlab.platypus import Paragraph
         from reportlab.lib.styles import ParagraphStyle
@@ -381,84 +441,85 @@ class CertificateService:
         p.drawOn(c, margin, body_y - ph)
         y = body_y - ph
 
-        # ===================== Course Details panel =====================
-        panel_top = y - 6 * mm
-        detail_rows = [
-            ("Program", data["programType"]),
-            ("Organization", data["organizationName"]),
-            ("Mode", data["courseMode"]),
-            ("Duration & Hours", data["courseDuration"]),
-            ("Domain(s)", data["courseDomain"]),
-            ("Topics Covered", data["courseTopics"]),
-            ("Start Date", data["startDate"]),
-            ("End Date", data["endDate"]),
-        ]
+        if cert_template != "participation":
+            # ===================== Course Details panel =====================
+            panel_top = y - 6 * mm
+            detail_rows = [
+                ("Program", data["programType"]),
+                ("Organization", data["organizationName"]),
+                ("Mode", data["courseMode"]),
+                ("Duration & Hours", data["courseDuration"]),
+                ("Domain(s)", data["courseDomain"]),
+                ("Topics Covered", data["courseTopics"]),
+                ("Start Date", data["startDate"]),
+                ("End Date", data["endDate"]),
+            ]
 
-        label_w = 38 * mm
-        row_leading = 6 * mm
-        pad = 6 * mm
+            label_w = 38 * mm
+            row_leading = 6 * mm
+            pad = 6 * mm
 
-        # estimate panel height by laying out text first into a buffer
-        temp_y = panel_top - pad
-        c.setFont("Helvetica", 10)
-        row_heights = []
-        for label, value in detail_rows:
-            lines_needed = 1
-            words = value.split(" ")
-            line = ""
-            for word in words:
-                test = f"{line} {word}".strip()
-                if c.stringWidth(test, "Helvetica", 10) <= (content_w - label_w - pad * 2):
-                    line = test
-                else:
-                    lines_needed += 1
-                    line = word
-            row_heights.append(lines_needed)
-        panel_height = pad * 2 + sum(h * row_leading for h in row_heights) + 8 * mm
+            # estimate panel height by laying out text first into a buffer
+            temp_y = panel_top - pad
+            c.setFont("Helvetica", 10)
+            row_heights = []
+            for label, value in detail_rows:
+                lines_needed = 1
+                words = value.split(" ")
+                line = ""
+                for word in words:
+                    test = f"{line} {word}".strip()
+                    if c.stringWidth(test, "Helvetica", 10) <= (content_w - label_w - pad * 2):
+                        line = test
+                    else:
+                        lines_needed += 1
+                        line = word
+                row_heights.append(lines_needed)
+            panel_height = pad * 2 + sum(h * row_leading for h in row_heights) + 8 * mm
 
-        c.setFillColor(TEAL_LIGHT)
-        c.roundRect(margin, panel_top - panel_height, content_w, panel_height, 2.5 * mm, fill=1, stroke=0)
-        c.setStrokeColor(HAIRLINE)
-        c.setLineWidth(0.6)
-        c.roundRect(margin, panel_top - panel_height, content_w, panel_height, 2.5 * mm, fill=0, stroke=1)
+            c.setFillColor(TEAL_LIGHT)
+            c.roundRect(margin, panel_top - panel_height, content_w, panel_height, 2.5 * mm, fill=1, stroke=0)
+            c.setStrokeColor(HAIRLINE)
+            c.setLineWidth(0.6)
+            c.roundRect(margin, panel_top - panel_height, content_w, panel_height, 2.5 * mm, fill=0, stroke=1)
 
-        cy = panel_top - pad - 2 * mm
-        c.setFillColor(NAVY)
-        c.setFont("Helvetica-Bold", 11)
-        c.drawString(margin + pad, cy, "Course Details")
-        cy -= 8 * mm
+            cy = panel_top - pad - 2 * mm
+            c.setFillColor(NAVY)
+            c.setFont("Helvetica-Bold", 11)
+            c.drawString(margin + pad, cy, "Course Details")
+            cy -= 8 * mm
 
-        for label, value in detail_rows:
-            c.setFont("Helvetica-Bold", 9.5)
-            c.setFillColor(NAVY_SOFT)
-            c.drawString(margin + pad, cy, f"{label}:")
-            wrapped_end = draw_wrapped_text(
-                c, value,
-                margin + pad + label_w, cy + 0.1 * mm,
-                content_w - label_w - pad * 2,
-                font="Helvetica", size=10, leading=row_leading, color=DARK_TEXT,
-            )
-            # advance cy by however many lines were used
-            lines_used = round((cy - wrapped_end) / row_leading)
-            cy -= max(lines_used, 1) * row_leading
+            for label, value in detail_rows:
+                c.setFont("Helvetica-Bold", 9.5)
+                c.setFillColor(NAVY_SOFT)
+                c.drawString(margin + pad, cy, f"{label}:")
+                wrapped_end = draw_wrapped_text(
+                    c, value,
+                    margin + pad + label_w, cy + 0.1 * mm,
+                    content_w - label_w - pad * 2,
+                    font="Helvetica", size=10, leading=row_leading, color=DARK_TEXT,
+                )
+                # advance cy by however many lines were used
+                lines_used = round((cy - wrapped_end) / row_leading)
+                cy -= max(lines_used, 1) * row_leading
 
-        y = panel_top - panel_height - 10 * mm
+            y = panel_top - panel_height - 10 * mm
 
-        # ===================== Performance remark =====================
-        c.setFont("Helvetica", 11)
-        c.setFillColor(DARK_TEXT)
-        perf_line = "Performance during the period was "
-        c.drawString(margin, y, perf_line)
-        pcw = c.stringWidth(perf_line, "Helvetica", 11)
-        c.setFont("Helvetica-Bold", 11)
-        c.setFillColor(TEAL)
-        perf_val = (data.get("performance") or "Excellent").strip().capitalize()
-        c.drawString(margin + pcw, y, f"{perf_val}.")
+            # ===================== Performance remark =====================
+            c.setFont("Helvetica", 11)
+            c.setFillColor(DARK_TEXT)
+            perf_line = "Performance during the period was "
+            c.drawString(margin, y, perf_line)
+            pcw = c.stringWidth(perf_line, "Helvetica", 11)
+            c.setFont("Helvetica-Bold", 11)
+            c.setFillColor(TEAL)
+            perf_val = (data.get("performance") or "Excellent").strip().capitalize()
+            c.drawString(margin + pcw, y, f"{perf_val}.")
 
-        y -= 8 * mm
-        c.setFont("Helvetica", 11)
-        c.setFillColor(DARK_TEXT)
-        c.drawString(margin, y, "Wishing you all the best for your future endeavors.")
+            y -= 8 * mm
+            c.setFont("Helvetica", 11)
+            c.setFillColor(DARK_TEXT)
+            c.drawString(margin, y, "Wishing you all the best for your future endeavors.")
 
         # ===================== QR verification block (replaces seal) =====================
         qr_img = build_qr_image_from_url(verification_url)

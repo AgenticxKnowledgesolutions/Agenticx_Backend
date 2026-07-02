@@ -15,6 +15,7 @@ from app.models.candidate_otp import CandidateOTP
 from app.models.candidate_payment import CandidatePayment
 from app.models.admin_notification import AdminNotification
 from app.models.job import Job, JobApplication
+from app.models.program import Program
 
 __all__ = [
     "Base",
@@ -22,6 +23,7 @@ __all__ = [
     "Review", "ReviewSource",
     "Activity", "ActivityType",
     "Course", "TechStack", "CurriculumMonth", "CurriculumModule", "CourseMode", "CourseDifficulty",
+    "Program",
     "Lead",
     "LeadNote",
     "LeadTimelineEvent",

@@ -132,6 +132,42 @@ class CandidateService:
 
         app_num = await cls.generate_application_number(db)
         
+        # Resolve Program details
+        program_id = data.get("program_id")
+        course_applied = data.get("course_applied")
+        program_type = data.get("program_type")
+        mode_of_learning = data.get("mode_of_learning")
+        course_duration = data.get("course_duration")
+        standard_course_fee = data.get("standard_course_fee", 0.0) or 0.0
+
+        lead_id = data.get("lead_id")
+        if not program_id and lead_id:
+            lead_stmt = select(Lead).where(Lead.id == lead_id)
+            lead_res = await db.execute(lead_stmt)
+            lead = lead_res.scalars().first()
+            if lead and lead.program_id:
+                program_id = lead.program_id
+
+        from app.models.program import Program
+        if program_id:
+            result_p = await db.execute(select(Program).where(Program.id == program_id))
+            program = result_p.scalar_one_or_none()
+            if program:
+                course_applied = program.name
+                program_type = program.program_type
+                mode_of_learning = program.mode or mode_of_learning
+                course_duration = program.duration or course_duration
+                standard_course_fee = float(program.standard_fee)
+        elif course_applied:
+            result_p = await db.execute(select(Program).where(Program.name == course_applied, Program.is_deleted == False))
+            program = result_p.scalar_one_or_none()
+            if program:
+                program_id = program.id
+                program_type = program.program_type
+                mode_of_learning = program.mode or mode_of_learning
+                course_duration = program.duration or course_duration
+                standard_course_fee = float(program.standard_fee)
+
         # Aadhaar Encryption
         aadhaar_plain = data.get("aadhaar_number")
         encrypted_aadhaar = encrypt_aadhaar(aadhaar_plain) if aadhaar_plain else None
@@ -139,7 +175,8 @@ class CandidateService:
         # Extract fields
         candidate = CandidateApplication(
             id=str(uuid.uuid4()),
-            lead_id=data.get("lead_id"),
+            lead_id=lead_id,
+            program_id=program_id,
             application_number=app_num,
             full_name=data.get("full_name"),
             email=email,
@@ -149,8 +186,12 @@ class CandidateService:
             emergency_contact=data.get("emergency_contact"),
             qualification=data.get("qualification"),
             blood_group=data.get("blood_group"),
-            course_applied=data.get("course_applied"),
-            mode_of_learning=data.get("mode_of_learning"),
+            course_applied=course_applied,
+            program_type=program_type,
+            mode_of_learning=mode_of_learning,
+            course_duration=course_duration,
+            standard_course_fee=standard_course_fee,
+            final_payable_amount=standard_course_fee,
             college_name=data.get("college_name"),
             date_of_birth=data.get("date_of_birth"),
             gender=data.get("gender"),
@@ -228,6 +269,37 @@ class CandidateService:
     async def update_existing_candidate_application(
         cls, db: AsyncSession, candidate: CandidateApplication, data: Dict[str, Any], created_by: Optional[str] = "Website"
     ) -> CandidateApplication:
+        # Resolve Program details
+        program_id = data.get("program_id")
+        lead_id = candidate.lead_id or data.get("lead_id")
+        if not program_id and lead_id:
+            lead_stmt = select(Lead).where(Lead.id == lead_id)
+            lead_res = await db.execute(lead_stmt)
+            lead = lead_res.scalars().first()
+            if lead and lead.program_id:
+                program_id = lead.program_id
+
+        from app.models.program import Program
+        if program_id:
+            candidate.program_id = program_id
+            result_p = await db.execute(select(Program).where(Program.id == program_id))
+            program = result_p.scalar_one_or_none()
+            if program:
+                candidate.course_applied = program.name
+                candidate.program_type = program.program_type
+                candidate.mode_of_learning = program.mode or candidate.mode_of_learning
+                candidate.course_duration = program.duration or candidate.course_duration
+                candidate.standard_course_fee = float(program.standard_fee)
+                candidate.final_payable_amount = max(
+                    0.0,
+                    float(program.standard_fee) - (
+                        (candidate.scholarship_amount or 0.0) +
+                        (candidate.special_discount or 0.0) +
+                        (candidate.corporate_discount or 0.0) +
+                        (candidate.promo_discount or 0.0)
+                    )
+                )
+
         # Aadhaar Encryption
         aadhaar_plain = data.get("aadhaar_number")
         if aadhaar_plain:
@@ -686,7 +758,8 @@ class CandidateService:
         performance: Optional[str] = None,
         program_type: Optional[str] = None,
         course_applied: Optional[str] = None,
-        user_email: Optional[str] = "Admin"
+        user_email: Optional[str] = "Admin",
+        program_id: Optional[str] = None
     ) -> CandidateApplication:
         try:
             stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id)
@@ -727,7 +800,48 @@ class CandidateService:
             old_status = candidate.application_status
             candidate.application_status = status_val
 
-            # Update course start/end dates and duration
+            # Resolve Program details first if program_id is passed
+            if program_id is not None:
+                candidate.program_id = program_id
+                if program_id:
+                    from app.models.program import Program
+                    result_p = await db.execute(select(Program).where(Program.id == program_id))
+                    prog = result_p.scalar_one_or_none()
+                    if prog:
+                        candidate.course_applied = prog.name
+                        candidate.program_type = prog.program_type
+                        candidate.course_duration = prog.duration
+                        candidate.standard_course_fee = prog.standard_fee
+                        candidate.mode_of_learning = prog.mode
+                        candidate.final_payable_amount = max(
+                            0.0,
+                            float(prog.standard_fee) - (
+                                (candidate.scholarship_amount or 0.0) +
+                                (candidate.special_discount or 0.0) +
+                                (candidate.corporate_discount or 0.0) +
+                                (candidate.promo_discount or 0.0)
+                            )
+                        )
+            elif course_applied is not None and course_applied != candidate.course_applied:
+                from app.models.program import Program
+                result_p = await db.execute(select(Program).where(Program.name == course_applied, Program.is_deleted == False))
+                prog = result_p.scalar_one_or_none()
+                if prog:
+                    candidate.program_id = prog.id
+                    candidate.program_type = prog.program_type
+                    candidate.course_duration = prog.duration
+                    candidate.standard_course_fee = prog.standard_fee
+                    candidate.final_payable_amount = max(
+                        0.0,
+                        float(prog.standard_fee) - (
+                            (candidate.scholarship_amount or 0.0) +
+                            (candidate.special_discount or 0.0) +
+                            (candidate.corporate_discount or 0.0) +
+                            (candidate.promo_discount or 0.0)
+                        )
+                    )
+
+            # Update course start/end dates and duration (Administrative overrides)
             if course_start_date is not None:
                 candidate.course_start_date = course_start_date
             if completed_at is not None:

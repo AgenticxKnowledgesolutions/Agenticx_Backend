@@ -24,6 +24,7 @@ class CandidateApplication(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     lead_id: Mapped[str | None] = mapped_column(String, ForeignKey("leads.id"), nullable=True)
+    program_id: Mapped[str | None] = mapped_column(String, ForeignKey("programs.id", ondelete="SET NULL"), nullable=True)
     
     application_number: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -95,6 +96,7 @@ class CandidateApplication(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
+    program: Mapped["Program | None"] = relationship()
     notes: Mapped[list["CandidateNote"]] = relationship(
         "CandidateNote", back_populates="candidate", cascade="all, delete-orphan", order_by="desc(CandidateNote.created_at)"
     )

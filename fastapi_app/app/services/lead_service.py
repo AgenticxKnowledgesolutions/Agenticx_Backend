@@ -325,6 +325,20 @@ async def create_lead(db: AsyncSession, data: LeadCreate, client_ip: str = "127.
     course_name = data.course_interest or data.interested_course or "General Inquiry"
     ip = client_ip
     
+    # Resolve program_id if not explicitly provided, or get name from program_id
+    program_id = data.program_id
+    from app.models.program import Program
+    if program_id:
+        result_p = await db.execute(select(Program).where(Program.id == program_id))
+        program = result_p.scalar_one_or_none()
+        if program:
+            course_name = program.name
+    elif course_name:
+        result_p = await db.execute(select(Program).where(Program.name == course_name, Program.is_deleted == False))
+        program = result_p.scalar_one_or_none()
+        if program:
+            program_id = program.id
+
     existing_lead = await find_duplicate_lead(db, data)
     
     if existing_lead:
@@ -378,6 +392,8 @@ async def create_lead(db: AsyncSession, data: LeadCreate, client_ip: str = "127.
         all_inters = res_inters.scalars().all()
         
         existing_lead.lead_score = calculate_score(existing_lead, all_inters, len(existing_lead.notes))
+        if program_id:
+            existing_lead.program_id = program_id
         
         await db.commit()
         log_crm_audit_event("LEAD_DUPLICATE_DETECTED", existing_lead.id, source_name, ip)
@@ -396,6 +412,7 @@ async def create_lead(db: AsyncSession, data: LeadCreate, client_ip: str = "127.
             phone=data.phone,
             message=data.goal or data.message,
             interested_course=course_name,
+            program_id=program_id,
             source_page=data.course_slug or data.source_page,
             status=data.status or "Pending",
             admin_notes=data.admin_notes,
@@ -537,6 +554,14 @@ async def update_lead(db: AsyncSession, lead_id: str, data: LeadUpdate) -> Optio
             elif key == "source":
                 changes.append(f"Source → {value}")
                 await add_timeline_event(db, lead.id, "Status Updated", f"Source updated to {value}", "Admin")
+            elif key == "program_id":
+                from app.models.program import Program
+                if value:
+                    res_p = await db.execute(select(Program).where(Program.id == value))
+                    prog = res_p.scalar_one_or_none()
+                    if prog:
+                        lead.interested_course = prog.name
+                        changes.append(f"Program → {prog.name}")
                 
     if changes:
         q_inters = select(LeadInteraction).where(LeadInteraction.lead_id == lead.id)

@@ -26,6 +26,7 @@ class CandidateCreate(BaseModel):
     registration_transaction_id: Optional[str] = Field(None, max_length=255)
     remarks: Optional[str] = None
     lead_id: Optional[str] = None
+    program_id: Optional[str] = None
     next_followup_at: Optional[datetime] = None
     # Single-use conversion token from email link (replaces plain lead_id in URL)
     token: Optional[str] = Field(None, max_length=255)
@@ -39,6 +40,7 @@ class CandidateStatusUpdate(BaseModel):
     performance: Optional[PerformanceType] = None
     program_type: Optional[ProgramType] = None
     course_applied: Optional[str] = None
+    program_id: Optional[str] = None
 
 
 class CandidateNoteCreate(BaseModel):
@@ -60,7 +62,7 @@ class BulkRegenerateCertificatesPayload(BaseModel):
 
 
 class CandidateOfferUpdate(BaseModel):
-    standard_course_fee: float = Field(..., ge=0)
+    standard_course_fee: Optional[float] = Field(None, ge=0)
     scholarship_amount: float = Field(0.0, ge=0)
     special_discount: float = Field(0.0, ge=0)
     corporate_discount: float = Field(0.0, ge=0)

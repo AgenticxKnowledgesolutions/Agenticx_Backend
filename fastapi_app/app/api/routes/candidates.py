@@ -75,6 +75,7 @@ async def validate_conversion_token(
             "email": existing_candidate.email,
             "phone": existing_candidate.phone or "",
             "course": existing_candidate.course_applied or "",
+            "program_id": existing_candidate.program_id or "",
         }
 
     # Fetch associated lead details for pre-filling the form if no existing candidate
@@ -95,6 +96,7 @@ async def validate_conversion_token(
         "email": lead.email,
         "phone": lead.phone or "",
         "course": lead.interested_course or "",
+        "program_id": lead.program_id or "",
     }
 
 
@@ -342,7 +344,8 @@ async def update_status(
         performance=payload.performance,
         program_type=payload.program_type,
         course_applied=payload.course_applied,
-        user_email=current_user.email
+        user_email=current_user.email,
+        program_id=payload.program_id
     )
     return {"success": True, "status": candidate.application_status}
 
@@ -567,7 +570,17 @@ async def update_candidate_offer(
         if not candidate:
             raise HTTPException(status_code=404, detail="Candidate not found")
             
-        candidate.standard_course_fee = data.standard_course_fee
+        standard_fee = data.standard_course_fee
+        if candidate.program_id:
+            from app.models.program import Program
+            prog_res = await db.execute(select(Program).where(Program.id == candidate.program_id))
+            prog = prog_res.scalar_one_or_none()
+            if prog:
+                standard_fee = float(prog.standard_fee)
+        elif standard_fee is None:
+            standard_fee = candidate.standard_course_fee or 0.0
+
+        candidate.standard_course_fee = standard_fee
         candidate.scholarship_amount = data.scholarship_amount
         candidate.special_discount = data.special_discount
         candidate.corporate_discount = data.corporate_discount
@@ -581,7 +594,7 @@ async def update_candidate_offer(
         # Calculate final payable amount
         candidate.final_payable_amount = max(
             0.0,
-            data.standard_course_fee - (
+            standard_fee - (
                 data.scholarship_amount +
                 data.special_discount +
                 data.corporate_discount +

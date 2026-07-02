@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, Text, Boolean, Integer, JSON, func
+from sqlalchemy import String, DateTime, Text, Boolean, Integer, JSON, func, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
@@ -14,6 +14,7 @@ class Lead(Base):
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
     interested_course: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    program_id: Mapped[str | None] = mapped_column(String, ForeignKey("programs.id", ondelete="SET NULL"), nullable=True)
     source_page: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="Pending")
     admin_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -41,6 +42,7 @@ class Lead(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     # Relationships
+    program: Mapped["Program | None"] = relationship()
     notes: Mapped[list["LeadNote"]] = relationship("LeadNote", back_populates="lead", cascade="all, delete-orphan", order_by="desc(LeadNote.created_at)")
     timeline_events: Mapped[list["LeadTimelineEvent"]] = relationship("LeadTimelineEvent", back_populates="lead", cascade="all, delete-orphan", order_by="desc(LeadTimelineEvent.created_at)")
     interactions: Mapped[list["LeadInteraction"]] = relationship("LeadInteraction", back_populates="lead", cascade="all, delete-orphan", order_by="desc(LeadInteraction.created_at)")

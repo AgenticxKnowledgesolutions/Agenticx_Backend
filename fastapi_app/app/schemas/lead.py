@@ -34,6 +34,7 @@ class LeadCreate(BaseModel):
     phone: Optional[str] = None
     message: Optional[str] = None
     interested_course: Optional[str] = None
+    program_id: Optional[str] = None
     source_page: Optional[str] = None
     status: Optional[str] = "Pending"
     admin_notes: Optional[str] = None
@@ -60,6 +61,7 @@ class LeadUpdate(BaseModel):
     source: Optional[str] = None
     priority: Optional[str] = None
     assigned_to: Optional[str] = None
+    program_id: Optional[str] = None
 
 
 class LeadInteractionResponse(BaseModel):
@@ -82,6 +84,7 @@ class LeadResponse(BaseModel):
     phone: Optional[str] = None
     message: Optional[str] = None
     interested_course: Optional[str] = None
+    program_id: Optional[str] = None
     source_page: Optional[str] = None
     status: str
     admin_notes: Optional[str] = None
