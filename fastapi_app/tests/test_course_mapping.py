@@ -89,7 +89,7 @@ def test_validation_exceptions():
         get_course_details("")
     assert "cannot be empty" in str(exc.value)
 
-    # Unrecognized course
-    with pytest.raises(ValueError) as exc:
-        get_course_details("Unrecognized Special Course 101")
-    assert "Unrecognized course name" in str(exc.value)
+    # Unrecognized course fallback
+    details = get_course_details("Unrecognized Special Course 101")
+    assert details["domain"] == "Unrecognized Special Course 101"
+    assert "Professional Development, Advanced Concepts" in details["topics"]

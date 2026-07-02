@@ -148,20 +148,18 @@ def get_course_details(course_name: str) -> dict:
     # 1. Check for Webinar
     if "webinar" in course_name_lower:
         topic = "General Technology"
-        if "webinar on" in course_name_lower:
-            parts = course_name_clean.split("on", 1)
-            if len(parts) > 1 and parts[1].strip():
-                topic = parts[1].strip()
-        elif "webinar:" in course_name_lower:
-            parts = course_name_clean.split(":", 1)
-            if len(parts) > 1 and parts[1].strip():
-                topic = parts[1].strip()
-        elif "webinar -" in course_name_lower:
-            parts = course_name_clean.split("-", 1)
-            if len(parts) > 1 and parts[1].strip():
-                topic = parts[1].strip()
-        elif course_name_lower.startswith("webinar") and len(course_name_lower) > 7:
-            topic = course_name_clean[7:].strip()
+        for splitter in [" on ", " in ", " - ", ":"]:
+            if splitter in course_name_lower:
+                parts = course_name_clean.split(splitter if splitter != ":" else ":", 1)
+                if len(parts) > 1 and parts[1].strip():
+                    topic = parts[1].strip()
+                    break
+        else:
+            temp = course_name_clean
+            if temp.lower().startswith("webinar"):
+                temp = temp[len("webinar"):].strip().lstrip(" -:")
+            if temp:
+                topic = temp
             
         return {
             "topics": f"Technology Overview, Industry Trends, Emerging Concepts, Q&A with Experts, and Interactive Discussions on {topic}",
@@ -171,18 +169,21 @@ def get_course_details(course_name: str) -> dict:
     # 1.5 Check for Faculty Development Programme (FDP)
     if "fdp" in course_name_lower or "faculty development" in course_name_lower:
         topic = "Academic and Research Methodologies"
-        if "fdp on" in course_name_lower:
-            parts = course_name_clean.split("on", 1)
-            if len(parts) > 1 and parts[1].strip():
-                topic = parts[1].strip()
-        elif "faculty development programme on" in course_name_lower:
-            parts = course_name_clean.split("on", 1)
-            if len(parts) > 1 and parts[1].strip():
-                topic = parts[1].strip()
-        elif "fdp:" in course_name_lower:
-            parts = course_name_clean.split(":", 1)
-            if len(parts) > 1 and parts[1].strip():
-                topic = parts[1].strip()
+        for splitter in [" on ", " in ", " - ", ":"]:
+            if splitter in course_name_lower:
+                parts = course_name_clean.split(splitter if splitter != ":" else ":", 1)
+                if len(parts) > 1 and parts[1].strip():
+                    topic = parts[1].strip()
+                    break
+        else:
+            temp = course_name_clean
+            for prefix in ["faculty development programme", "faculty development program", "faculty development", "fdp"]:
+                if temp.lower().startswith(prefix):
+                    temp = temp[len(prefix):].strip()
+                    break
+            temp = temp.lstrip(" -:")
+            if temp:
+                topic = temp
                 
         return {
             "topics": f"Advanced Pedagogy, Curriculum Design, Practical Training, Research Methodology, and Emerging Technologies in {topic}",
@@ -193,21 +194,18 @@ def get_course_details(course_name: str) -> dict:
     if "workshop" in course_name_lower or "bootcamp" in course_name_lower:
         topic = "Practical Technology Labs"
         keyword = "workshop" if "workshop" in course_name_lower else "bootcamp"
-        
-        if f"{keyword} on" in course_name_lower:
-            parts = course_name_clean.split("on", 1)
-            if len(parts) > 1 and parts[1].strip():
-                topic = parts[1].strip()
-        elif f"{keyword}:" in course_name_lower:
-            parts = course_name_clean.split(":", 1)
-            if len(parts) > 1 and parts[1].strip():
-                topic = parts[1].strip()
-        elif f"{keyword} -" in course_name_lower:
-            parts = course_name_clean.split("-", 1)
-            if len(parts) > 1 and parts[1].strip():
-                topic = parts[1].strip()
-        elif course_name_lower.startswith(keyword) and len(course_name_lower) > len(keyword):
-            topic = course_name_clean[len(keyword):].strip()
+        for splitter in [" on ", " in ", " - ", ":"]:
+            if splitter in course_name_lower:
+                parts = course_name_clean.split(splitter if splitter != ":" else ":", 1)
+                if len(parts) > 1 and parts[1].strip():
+                    topic = parts[1].strip()
+                    break
+        else:
+            temp = course_name_clean
+            if temp.lower().startswith(keyword):
+                temp = temp[len(keyword):].strip().lstrip(" -:")
+            if temp:
+                topic = temp
             
         return {
             "topics": f"Interactive Technical Training, Practical Labs, Guided Projects, Framework Deep-Dive, and Collaborative Problem Solving on {topic}",
@@ -217,20 +215,21 @@ def get_course_details(course_name: str) -> dict:
     # 3. Check for Internship
     if "internship" in course_name_lower or "intern" in course_name_lower:
         role = "Software Development"
-        if "internship in" in course_name_lower:
-            parts = course_name_clean.split("in", 1)
-            if len(parts) > 1 and parts[1].strip():
-                role = parts[1].strip()
-        elif "internship:" in course_name_lower:
-            parts = course_name_clean.split(":", 1)
-            if len(parts) > 1 and parts[1].strip():
-                role = parts[1].strip()
-        elif "internship -" in course_name_lower:
-            parts = course_name_clean.split("-", 1)
-            if len(parts) > 1 and parts[1].strip():
-                role = parts[1].strip()
-        elif course_name_lower.startswith("internship") and len(course_name_lower) > 10:
-            role = course_name_clean[10:].strip()
+        for splitter in [" in ", " on ", " - ", ":"]:
+            if splitter in course_name_lower:
+                parts = course_name_clean.split(splitter if splitter != ":" else ":", 1)
+                if len(parts) > 1 and parts[1].strip():
+                    role = parts[1].strip()
+                    break
+        else:
+            temp = course_name_clean
+            for prefix in ["internship", "intern"]:
+                if temp.lower().startswith(prefix):
+                    temp = temp[len(prefix):].strip()
+                    break
+            temp = temp.lstrip(" -:")
+            if temp:
+                role = temp
             
         return {
             "topics": f"Hands-on Project Work, Collaborative Development, Version Control, Code Reviews, Software Engineering Lifecycle, and Professional Best Practices in {role}",
@@ -256,7 +255,11 @@ def get_course_details(course_name: str) -> dict:
             "domain": best_match["domain"]
         }
 
-    raise ValueError(f"Unrecognized course name: '{course_name}'. Please register this course or use a valid name to generate the certificate.")
+    # 5. Robust fallback for unlisted courses
+    return {
+        "topics": f"Professional Development, Advanced Concepts, Hands-on Training, and Practical Applications in {course_name_clean}",
+        "domain": course_name_clean
+    }
 
 
 class CertificateService:
@@ -506,7 +509,7 @@ class CertificateService:
         y = panel_top - panel_height - 10 * mm
 
         # ===================== Performance remark =====================
-        if data.get("performance"):
+        if cert_template != "participation" and data.get("performance"):
             c.setFont("Helvetica", 11)
             c.setFillColor(DARK_TEXT)
             perf_line = "Performance during the period was "
