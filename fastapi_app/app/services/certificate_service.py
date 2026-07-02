@@ -441,71 +441,72 @@ class CertificateService:
         p.drawOn(c, margin, body_y - ph)
         y = body_y - ph
 
-        if cert_template != "participation":
-            # ===================== Course Details panel =====================
-            panel_top = y - 6 * mm
-            detail_rows = [
-                ("Program", data["programType"]),
-                ("Organization", data["organizationName"]),
-                ("Mode", data["courseMode"]),
-                ("Duration & Hours", data["courseDuration"]),
-                ("Domain(s)", data["courseDomain"]),
-                ("Topics Covered", data["courseTopics"]),
-                ("Start Date", data["startDate"]),
-                ("End Date", data["endDate"]),
-            ]
+        # ===================== Course/Program Details panel =====================
+        panel_top = y - 6 * mm
+        detail_rows = [
+            ("Program", data["programType"]),
+            ("Organization", data["organizationName"]),
+            ("Mode", data["courseMode"]),
+            ("Duration & Hours", data["courseDuration"]),
+            ("Domain(s)", data["courseDomain"]),
+            ("Topics Covered", data["courseTopics"]),
+            ("Start Date", data["startDate"]),
+            ("End Date", data["endDate"]),
+        ]
 
-            label_w = 38 * mm
-            row_leading = 6 * mm
-            pad = 6 * mm
+        label_w = 38 * mm
+        row_leading = 6 * mm
+        pad = 6 * mm
 
-            # estimate panel height by laying out text first into a buffer
-            temp_y = panel_top - pad
-            c.setFont("Helvetica", 10)
-            row_heights = []
-            for label, value in detail_rows:
-                lines_needed = 1
-                words = value.split(" ")
-                line = ""
-                for word in words:
-                    test = f"{line} {word}".strip()
-                    if c.stringWidth(test, "Helvetica", 10) <= (content_w - label_w - pad * 2):
-                        line = test
-                    else:
-                        lines_needed += 1
-                        line = word
-                row_heights.append(lines_needed)
-            panel_height = pad * 2 + sum(h * row_leading for h in row_heights) + 8 * mm
+        # estimate panel height by laying out text first into a buffer
+        temp_y = panel_top - pad
+        c.setFont("Helvetica", 10)
+        row_heights = []
+        for label, value in detail_rows:
+            lines_needed = 1
+            words = value.split(" ")
+            line = ""
+            for word in words:
+                test = f"{line} {word}".strip()
+                if c.stringWidth(test, "Helvetica", 10) <= (content_w - label_w - pad * 2):
+                    line = test
+                else:
+                    lines_needed += 1
+                    line = word
+            row_heights.append(lines_needed)
+        panel_height = pad * 2 + sum(h * row_leading for h in row_heights) + 8 * mm
 
-            c.setFillColor(TEAL_LIGHT)
-            c.roundRect(margin, panel_top - panel_height, content_w, panel_height, 2.5 * mm, fill=1, stroke=0)
-            c.setStrokeColor(HAIRLINE)
-            c.setLineWidth(0.6)
-            c.roundRect(margin, panel_top - panel_height, content_w, panel_height, 2.5 * mm, fill=0, stroke=1)
+        c.setFillColor(TEAL_LIGHT)
+        c.roundRect(margin, panel_top - panel_height, content_w, panel_height, 2.5 * mm, fill=1, stroke=0)
+        c.setStrokeColor(HAIRLINE)
+        c.setLineWidth(0.6)
+        c.roundRect(margin, panel_top - panel_height, content_w, panel_height, 2.5 * mm, fill=0, stroke=1)
 
-            cy = panel_top - pad - 2 * mm
-            c.setFillColor(NAVY)
-            c.setFont("Helvetica-Bold", 11)
-            c.drawString(margin + pad, cy, "Course Details")
-            cy -= 8 * mm
+        cy = panel_top - pad - 2 * mm
+        c.setFillColor(NAVY)
+        c.setFont("Helvetica-Bold", 11)
+        details_title = f"{data['programType']} Details" if data.get("programType") else "Course Details"
+        c.drawString(margin + pad, cy, details_title)
+        cy -= 8 * mm
 
-            for label, value in detail_rows:
-                c.setFont("Helvetica-Bold", 9.5)
-                c.setFillColor(NAVY_SOFT)
-                c.drawString(margin + pad, cy, f"{label}:")
-                wrapped_end = draw_wrapped_text(
-                    c, value,
-                    margin + pad + label_w, cy + 0.1 * mm,
-                    content_w - label_w - pad * 2,
-                    font="Helvetica", size=10, leading=row_leading, color=DARK_TEXT,
-                )
-                # advance cy by however many lines were used
-                lines_used = round((cy - wrapped_end) / row_leading)
-                cy -= max(lines_used, 1) * row_leading
+        for label, value in detail_rows:
+            c.setFont("Helvetica-Bold", 9.5)
+            c.setFillColor(NAVY_SOFT)
+            c.drawString(margin + pad, cy, f"{label}:")
+            wrapped_end = draw_wrapped_text(
+                c, value,
+                margin + pad + label_w, cy + 0.1 * mm,
+                content_w - label_w - pad * 2,
+                font="Helvetica", size=10, leading=row_leading, color=DARK_TEXT,
+            )
+            # advance cy by however many lines were used
+            lines_used = round((cy - wrapped_end) / row_leading)
+            cy -= max(lines_used, 1) * row_leading
 
-            y = panel_top - panel_height - 10 * mm
+        y = panel_top - panel_height - 10 * mm
 
-            # ===================== Performance remark =====================
+        # ===================== Performance remark =====================
+        if data.get("performance"):
             c.setFont("Helvetica", 11)
             c.setFillColor(DARK_TEXT)
             perf_line = "Performance during the period was "
@@ -513,13 +514,13 @@ class CertificateService:
             pcw = c.stringWidth(perf_line, "Helvetica", 11)
             c.setFont("Helvetica-Bold", 11)
             c.setFillColor(TEAL)
-            perf_val = (data.get("performance") or "Excellent").strip().capitalize()
+            perf_val = data["performance"].strip().capitalize()
             c.drawString(margin + pcw, y, f"{perf_val}.")
-
             y -= 8 * mm
-            c.setFont("Helvetica", 11)
-            c.setFillColor(DARK_TEXT)
-            c.drawString(margin, y, "Wishing you all the best for your future endeavors.")
+
+        c.setFont("Helvetica", 11)
+        c.setFillColor(DARK_TEXT)
+        c.drawString(margin, y, "Wishing you all the best for your future endeavors.")
 
         # ===================== QR verification block (replaces seal) =====================
         qr_img = build_qr_image_from_url(verification_url)
