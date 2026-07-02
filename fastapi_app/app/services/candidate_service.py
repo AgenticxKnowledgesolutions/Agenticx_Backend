@@ -85,23 +85,28 @@ class CandidateService:
     async def generate_application_number(db: AsyncSession) -> str:
         """Generates a unique application number formatted like CAF-YYYY-XXXXX."""
         current_year = datetime.utcnow().year
+        prefix = f"CAF-{current_year}-"
         
-        # Get count of candidate records created in current year
-        year_start = datetime(current_year, 1, 1)
-        year_end = datetime(current_year + 1, 1, 1)
-        
-        stmt = select(func.count(CandidateApplication.id)).where(
-            and_(
-                CandidateApplication.created_at >= year_start,
-                CandidateApplication.created_at < year_end
-            )
+        # Select all application numbers for the current year to find the maximum suffix
+        stmt = select(CandidateApplication.application_number).where(
+            CandidateApplication.application_number.like(f"{prefix}%")
         )
         res = await db.execute(stmt)
-        count = res.scalar() or 0
+        app_numbers = res.scalars().all()
         
-        # Format with 5 digits sequence
-        seq_num = count + 1
-        return f"CAF-{current_year}-{seq_num:05d}"
+        max_seq = 0
+        for app_num in app_numbers:
+            try:
+                # Extract suffix after prefix
+                suffix_str = app_num[len(prefix):]
+                seq = int(suffix_str)
+                if seq > max_seq:
+                    max_seq = seq
+            except ValueError:
+                continue
+                
+        next_seq = max_seq + 1
+        return f"{prefix}{next_seq:05d}"
 
     @classmethod
     async def create_candidate_application(
