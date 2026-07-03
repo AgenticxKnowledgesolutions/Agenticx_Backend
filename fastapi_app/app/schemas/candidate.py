@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 from typing import Optional, List, Dict
 from datetime import datetime
 from app.models.enums import ProgramType, PerformanceType
@@ -30,6 +30,17 @@ class CandidateCreate(BaseModel):
     next_followup_at: Optional[datetime] = None
     # Single-use conversion token from email link (replaces plain lead_id in URL)
     token: Optional[str] = Field(None, max_length=255)
+    program_type: Optional[ProgramType] = None
+    programme_domain: Optional[str] = Field(None, max_length=255)
+
+    @model_validator(mode="after")
+    def validate_fdp_requirements(self) -> "CandidateCreate":
+        if self.program_type == ProgramType.FACULTY_DEVELOPMENT_PROGRAMME:
+            if not self.college_name or not self.college_name.strip():
+                raise ValueError("College / Institution Name is required for Faculty Development Programme.")
+            if not self.programme_domain or not self.programme_domain.strip():
+                raise ValueError("Programme Domain is required for Faculty Development Programme.")
+        return self
 
 
 class CandidateStatusUpdate(BaseModel):
@@ -41,6 +52,17 @@ class CandidateStatusUpdate(BaseModel):
     program_type: Optional[ProgramType] = None
     course_applied: Optional[str] = None
     program_id: Optional[str] = None
+    programme_domain: Optional[str] = Field(None, max_length=255)
+    college_name: Optional[str] = Field(None, max_length=255)
+
+    @model_validator(mode="after")
+    def validate_fdp_update(self) -> "CandidateStatusUpdate":
+        if self.status.lower() == "completed" and self.program_type == ProgramType.FACULTY_DEVELOPMENT_PROGRAMME:
+            if not self.college_name or not self.college_name.strip():
+                raise ValueError("College / Institution Name is required for Faculty Development Programme.")
+            if not self.programme_domain or not self.programme_domain.strip():
+                raise ValueError("Programme Domain is required for Faculty Development Programme.")
+        return self
 
 
 class CandidateNoteCreate(BaseModel):

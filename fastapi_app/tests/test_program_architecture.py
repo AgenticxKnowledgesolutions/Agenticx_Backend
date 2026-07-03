@@ -277,3 +277,47 @@ async def test_certificate_participation_template():
             # Verify the course details mapping matches fallback for FDP
             details = get_course_details(candidate.course_applied)
             assert "Faculty Development Programme" in details["domain"] or "FDP" in details["domain"]
+
+
+@pytest.mark.asyncio
+async def test_fdp_certificate_generation():
+    mock_db = AsyncMock()
+    
+    # Setup candidate record for FDP
+    candidate = CandidateApplication(
+        id="cand-fdp-123",
+        application_number="CAF-FDP-999",
+        full_name="Prof. Alice Smith",
+        email="alice.smith@college.edu",
+        course_applied="Faculty Development Programme",
+        program_type="Faculty Development Programme",
+        programme_domain="Cyber Security",
+        college_name="IIT Bombay",
+        course_start_date=datetime(2026, 7, 1),
+        completed_at=datetime(2026, 7, 5),
+        gender="female",
+        performance="Excellent" # Should be omitted in cert description
+    )
+    
+    mock_prog = Program(
+        id="prog-fdp-123",
+        name="Faculty Development Programme",
+        program_type="Faculty Development Programme",
+        certificate_template="participation"
+    )
+    
+    mock_res = MagicMock()
+    mock_res.scalar_one_or_none.return_value = mock_prog
+    mock_db.execute.return_value = mock_res
+    
+    # Mock supabase upload
+    with patch("app.services.certificate_service.CertificateUploadService.upload_certificate", new_callable=AsyncMock) as mock_upload:
+        mock_upload.return_value = "https://supabase/fdp-cert.pdf"
+        
+        # Mock create_certificate_token
+        with patch("app.services.certificate_service.create_certificate_token") as mock_token:
+            mock_token.return_value = "signed-fdp-token"
+            
+            # Generate and verify save
+            updated_candidate = await CertificateService.generate_and_save_certificate(mock_db, candidate)
+            assert updated_candidate.certificate_url == "https://supabase/fdp-cert.pdf"

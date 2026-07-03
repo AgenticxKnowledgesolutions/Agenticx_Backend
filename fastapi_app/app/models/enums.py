@@ -6,6 +6,7 @@ class ProgramType(str, Enum):
     CRASH_COURSE = "Crash Course"
     WEBINAR = "Webinar"
     WORKSHOP = "Workshop"
+    FACULTY_DEVELOPMENT_PROGRAMME = "Faculty Development Programme"
 
 class PerformanceType(str, Enum):
     EXCELLENT = "Excellent"

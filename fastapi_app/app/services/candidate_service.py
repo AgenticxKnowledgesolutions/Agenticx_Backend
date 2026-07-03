@@ -190,6 +190,7 @@ class CandidateService:
             blood_group=data.get("blood_group"),
             course_applied=course_applied,
             program_type=program_type,
+            programme_domain=data.get("programme_domain"),
             mode_of_learning=mode_of_learning,
             course_duration=course_duration,
             standard_course_fee=standard_course_fee,
@@ -766,7 +767,9 @@ class CandidateService:
         program_type: Optional[str] = None,
         course_applied: Optional[str] = None,
         user_email: Optional[str] = "Admin",
-        program_id: Optional[str] = None
+        program_id: Optional[str] = None,
+        programme_domain: Optional[str] = None,
+        college_name: Optional[str] = None
     ) -> CandidateApplication:
         try:
             stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id)
@@ -782,10 +785,15 @@ class CandidateService:
             if status_val == "completed":
                 perf_val = performance if performance is not None else candidate.performance
                 prog_val = program_type if program_type is not None else candidate.program_type
-                if not perf_val or not prog_val:
+                if not prog_val:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Cannot mark status as Completed: both Program Type and Performance are required."
+                        detail="Cannot mark status as Completed: Program Type is required."
+                    )
+                if prog_val != "Faculty Development Programme" and not perf_val:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Cannot mark status as Completed: Performance is required for student programs."
                     )
 
             # Check if any certificate fields changed before updating them
@@ -802,6 +810,8 @@ class CandidateService:
                 if program_type is not None and program_type != candidate.program_type:
                     cert_fields_changed = True
                 if course_applied is not None and course_applied != candidate.course_applied:
+                    cert_fields_changed = True
+                if programme_domain is not None and programme_domain != candidate.programme_domain:
                     cert_fields_changed = True
 
             old_status = candidate.application_status
@@ -871,6 +881,10 @@ class CandidateService:
                 candidate.program_type = program_type
             if course_applied is not None:
                 candidate.course_applied = course_applied
+            if programme_domain is not None:
+                candidate.programme_domain = programme_domain
+            if college_name is not None:
+                candidate.college_name = college_name
 
             candidate.updated_at = datetime.utcnow()
 
@@ -892,7 +906,7 @@ class CandidateService:
                         raise Exception("Missing course")
                     if not candidate.date_of_birth:
                         raise Exception("Missing DOB")
-                    if not candidate.performance:
+                    if candidate.program_type != "Faculty Development Programme" and not candidate.performance:
                         raise Exception("Missing performance")
                     if not candidate.program_type:
                         raise Exception("Missing program type")

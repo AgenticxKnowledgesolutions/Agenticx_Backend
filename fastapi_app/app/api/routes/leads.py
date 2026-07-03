@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from app.core.database import get_db
 from app.schemas.lead import (
-    LeadCreate, LeadResponse, LeadUpdate, 
+    LeadCreate, LeadResponse, LeadUpdate,
     DuplicateCheckRequest, BulkUpdatePayload, BulkDeletePayload,
     LeadNoteCreate, LeadNoteResponse, LeadTimelineResponse,
     ManualMergePayload
@@ -19,6 +19,14 @@ from app.models.lead_token import LeadToken
 from app.core.limiter import limiter
 
 router = APIRouter(prefix="/leads", tags=["leads"])
+
+
+def _serialize_lead(lead) -> dict:
+    """Serialize a Lead ORM object to a dict, including dynamic attributes."""
+    data = LeadResponse.model_validate(lead).model_dump()
+    # has_candidate is injected as a dynamic attribute by list_trash_leads
+    data["has_candidate"] = getattr(lead, "has_candidate", False)
+    return data
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
@@ -81,7 +89,9 @@ async def list_trash_leads(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    return await lead_service.list_trash_leads(db)
+    leads = await lead_service.list_trash_leads(db)
+    # Return raw dicts so has_candidate (dynamic attr) is included
+    return [_serialize_lead(l) for l in leads]
 
 
 @router.get("/{lead_id}", response_model=LeadResponse)
@@ -199,7 +209,13 @@ async def hard_delete_lead(
     lead = await db.get(Lead, lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    await lead_service.hard_delete_lead(db, lead)
+    try:
+        await lead_service.hard_delete_lead(db, lead)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc)
+        )
     return {"detail": "Lead permanently deleted"}
 
 

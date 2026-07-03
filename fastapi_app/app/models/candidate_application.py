@@ -71,6 +71,7 @@ class CandidateApplication(Base):
     course_duration: Mapped[str | None] = mapped_column(String(100), nullable=True)
     performance: Mapped[str | None] = mapped_column(String(100), nullable=True)
     program_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    programme_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Offer Management & Financial Fields
     standard_course_fee: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)

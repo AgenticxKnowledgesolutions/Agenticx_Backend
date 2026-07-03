@@ -345,7 +345,9 @@ async def update_status(
         program_type=payload.program_type,
         course_applied=payload.course_applied,
         user_email=current_user.email,
-        program_id=payload.program_id
+        program_id=payload.program_id,
+        programme_domain=payload.programme_domain,
+        college_name=payload.college_name
     )
     return {"success": True, "status": candidate.application_status}
 

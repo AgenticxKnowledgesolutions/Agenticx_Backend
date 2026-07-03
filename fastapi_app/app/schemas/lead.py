@@ -95,7 +95,15 @@ class LeadResponse(BaseModel):
     priority: str
     assigned_to: Optional[str] = None
     created_at: datetime
-    
+
+    # Trash / soft-delete metadata
+    is_deleted: bool = False
+    deleted_at: Optional[datetime] = None
+    deleted_by: Optional[str] = None
+
+    # Conversion guard: True when a CandidateApplication references this lead
+    has_candidate: bool = False
+
     notes: List[LeadNoteResponse] = []
     timeline_events: List[LeadTimelineResponse] = []
 

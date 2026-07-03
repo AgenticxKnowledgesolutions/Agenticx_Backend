@@ -295,7 +295,16 @@ class CertificateService:
         cert_template = "completion"
         program_type = candidate.program_type or "Course"
         
-        if candidate.program_id:
+        prog_type_lower = (program_type or "").lower()
+        course_lower = course_applied.lower()
+        if (
+            prog_type_lower in ["fdp", "faculty development programme"] or
+            "fdp" in course_lower or
+            "faculty development" in course_lower
+        ):
+            cert_template = "fdp"
+            program_type = "Faculty Development Programme"
+        elif candidate.program_id:
             result_p = await db.execute(select(Program).where(Program.id == candidate.program_id))
             program = result_p.scalar_one_or_none()
             if program:
@@ -303,14 +312,10 @@ class CertificateService:
                 program_type = program.program_type or program_type
         else:
             # Fallback for existing records based on program type or name
-            prog_type_lower = (program_type or "").lower()
-            course_lower = course_applied.lower()
             if (
-                "fdp" in course_lower or
-                "faculty development" in course_lower or
                 "webinar" in course_lower or
                 "workshop" in course_lower or
-                prog_type_lower in ["workshop", "webinar", "fdp", "faculty development programme"]
+                prog_type_lower in ["workshop", "webinar"]
             ):
                 cert_template = "participation"
 
@@ -421,6 +426,18 @@ class CertificateService:
                 f"<b>{start_date_str}</b> to <b>{end_date_str}</b>. We appreciate your active participation and "
                 f"wish you continued success in your academic and professional journey."
             )
+        elif cert_template == "fdp":
+            domain_name = (candidate.programme_domain or "").strip()
+            if domain_name:
+                fdp_text = f"Faculty Development Programme on {domain_name}"
+            else:
+                fdp_text = "Faculty Development Programme"
+            body = (
+                f"This is to certify that <b>{data['recipientName']}</b> has successfully completed the "
+                f"<b>{fdp_text}</b> on {data['completionDate']} at <b>{data['organizationName']}</b>. "
+                f"{pronoun['subject']} actively participated throughout the "
+                f"program with full dedication and demonstrated a strong commitment to learning."
+            )
         else:
             body = (
                 f"This is to certify that <b>{data['recipientName']}</b> has successfully completed the "
@@ -446,16 +463,28 @@ class CertificateService:
 
         # ===================== Course/Program Details panel =====================
         panel_top = y - 6 * mm
-        detail_rows = [
-            ("Program", data["programType"]),
-            ("Organization", data["organizationName"]),
-            ("Mode", data["courseMode"]),
-            ("Duration & Hours", data["courseDuration"]),
-            ("Domain(s)", data["courseDomain"]),
-            ("Topics Covered", data["courseTopics"]),
-            ("Start Date", data["startDate"]),
-            ("End Date", data["endDate"]),
-        ]
+        if cert_template == "fdp":
+            detail_rows = [
+                ("Program", data["programType"]),
+                ("Organization", data["organizationName"]),
+                ("In Association With", candidate.college_name or "N/A"),
+                ("Mode", data["courseMode"]),
+                ("Duration & Hours", data["courseDuration"]),
+                ("Domain", candidate.programme_domain or "N/A"),
+                ("Start Date", data["startDate"]),
+                ("End Date", data["endDate"]),
+            ]
+        else:
+            detail_rows = [
+                ("Program", data["programType"]),
+                ("Organization", data["organizationName"]),
+                ("Mode", data["courseMode"]),
+                ("Duration & Hours", data["courseDuration"]),
+                ("Domain(s)", data["courseDomain"]),
+                ("Topics Covered", data["courseTopics"]),
+                ("Start Date", data["startDate"]),
+                ("End Date", data["endDate"]),
+            ]
 
         label_w = 38 * mm
         row_leading = 6 * mm
@@ -509,7 +538,7 @@ class CertificateService:
         y = panel_top - panel_height - 10 * mm
 
         # ===================== Performance remark =====================
-        if cert_template != "participation" and data.get("performance"):
+        if cert_template not in ("participation", "fdp") and data.get("performance"):
             c.setFont("Helvetica", 11)
             c.setFillColor(DARK_TEXT)
             perf_line = "Performance during the period was "

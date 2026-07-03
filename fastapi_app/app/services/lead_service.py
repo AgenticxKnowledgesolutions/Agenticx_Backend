@@ -14,6 +14,7 @@ from app.models.lead import Lead
 from app.models.lead_note import LeadNote
 from app.models.lead_timeline import LeadTimelineEvent
 from app.models.lead_interaction import LeadInteraction
+from app.models.candidate_application import CandidateApplication
 from app.schemas.lead import LeadCreate, LeadUpdate
 
 # Setup crm_audit_logger
@@ -573,6 +574,7 @@ async def update_lead(db: AsyncSession, lead_id: str, data: LeadUpdate) -> Optio
     return lead
 
 async def list_trash_leads(db: AsyncSession) -> List[Lead]:
+    """Return all soft-deleted leads, each annotated with a has_candidate flag."""
     query = select(Lead).where(
         Lead.is_deleted == True
     ).order_by(
@@ -583,7 +585,23 @@ async def list_trash_leads(db: AsyncSession) -> List[Lead]:
         selectinload(Lead.interactions)
     )
     result = await db.execute(query)
-    return result.scalars().all()
+    leads = result.scalars().all()
+
+    if not leads:
+        return []
+
+    # Batch-check which leads have associated candidate applications
+    lead_ids = [l.id for l in leads]
+    cand_query = select(CandidateApplication.lead_id).where(
+        CandidateApplication.lead_id.in_(lead_ids)
+    )
+    cand_result = await db.execute(cand_query)
+    converted_ids: set[str] = {row[0] for row in cand_result.fetchall()}
+
+    for lead in leads:
+        lead.has_candidate = lead.id in converted_ids  # type: ignore[attr-defined]
+
+    return leads
 
 async def restore_lead(db: AsyncSession, lead: Lead, user_email: Optional[str] = None) -> Lead:
     lead.is_deleted = False
@@ -601,7 +619,27 @@ async def restore_lead(db: AsyncSession, lead: Lead, user_email: Optional[str] =
     await db.commit()
     return lead
 
+async def check_lead_has_candidate(db: AsyncSession, lead_id: str) -> bool:
+    """Return True when at least one CandidateApplication is linked to this lead."""
+    query = select(CandidateApplication.id).where(
+        CandidateApplication.lead_id == lead_id
+    ).limit(1)
+    result = await db.execute(query)
+    return result.scalar() is not None
+
+
 async def hard_delete_lead(db: AsyncSession, lead: Lead) -> None:
+    """
+    Permanently delete a lead that has NO associated candidate applications.
+    Raises ValueError if the lead has been converted to a candidate — the
+    caller must surface this as HTTP 409 rather than attempting the delete.
+    """
+    has_candidate = await check_lead_has_candidate(db, lead.id)
+    if has_candidate:
+        raise ValueError(
+            "This lead has already been converted into a Candidate Application. "
+            "Please delete the Candidate record first, or archive the Lead instead."
+        )
     await db.delete(lead)
     await db.commit()
 
