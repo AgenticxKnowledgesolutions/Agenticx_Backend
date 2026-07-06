@@ -17,6 +17,7 @@ from app.models.candidate_application import CandidateApplication
 from sqlalchemy import select, update, or_
 
 router = APIRouter(prefix="/candidates", tags=["candidates"])
+webhook_router = APIRouter(prefix="/portal/payments", tags=["payments"])
 optional_bearer = HTTPBearer(auto_error=False)
 
 
@@ -543,6 +544,7 @@ import base64
 import uuid
 import logging
 import httpx
+from datetime import timedelta
 from sqlalchemy.orm import selectinload
 from app.deps import get_current_candidate
 from app.models.candidate_payment import CandidatePayment
@@ -555,6 +557,142 @@ from app.schemas.candidate import (
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def log_payment_audit(
+    action: str,
+    candidate_id: str,
+    caf_number: str,
+    order_id: str,
+    payment_id: str = "N/A",
+    amount: float = 0.0,
+    verification_result: str = "N/A",
+    receipt_number: str = "N/A",
+    client_ip: str = "Unknown"
+):
+    timestamp = datetime.now().isoformat()
+    audit_msg = (
+        f"[PAYMENT AUDIT] Action: {action} | Timestamp: {timestamp} | "
+        f"Candidate ID: {candidate_id} | CAF: {caf_number} | "
+        f"Order ID: {order_id} | Payment ID: {payment_id} | "
+        f"Amount: {amount} | Result: {verification_result} | "
+        f"Receipt: {receipt_number} | IP: {client_ip}"
+    )
+    logger.info(audit_msg)
+
+
+async def reconcile_payment_state(db: AsyncSession, payment: CandidatePayment) -> bool:
+    """Query Razorpay directly to check if the payment succeeded, and update status if so."""
+    if payment.status == "Paid":
+        return True
+    if not payment.razorpay_order_id or payment.razorpay_order_id.startswith("order_mock_"):
+        return False
+        
+    key_id = settings.RAZORPAY_KEY_ID
+    key_secret = settings.RAZORPAY_KEY_SECRET
+    if not key_id or not key_secret:
+        return False
+        
+    try:
+        url = f"https://api.razorpay.com/v1/orders/{payment.razorpay_order_id}/payments"
+        auth_str = f"{key_id}:{key_secret}"
+        auth_bytes = auth_str.encode('ascii')
+        auth_b64 = base64.b64encode(auth_bytes).decode('ascii')
+        headers = {
+            "Authorization": f"Basic {auth_b64}",
+            "Content-Type": "application/json"
+        }
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, timeout=10.0)
+            if response.status_code == 200:
+                resp_json = response.json()
+                items = resp_json.get("items", [])
+                for item in items:
+                    if item.get("status") == "captured":
+                        # Verify currency and amount
+                        currency = item.get("currency")
+                        amount_in_paise = item.get("amount")
+                        if currency == "INR" and abs(amount_in_paise - int(payment.amount * 100)) <= 1:
+                            payment_id = item.get("id")
+                            
+                            # Load candidate explicitly to avoid detached session issues
+                            stmt = select(CandidateApplication).where(
+                                CandidateApplication.id == payment.candidate_id
+                            )
+                            c_res = await db.execute(stmt)
+                            candidate = c_res.scalar_one_or_none()
+                            caf_no = candidate.application_number if candidate else "N/A"
+                            
+                            # Update payment record
+                            payment.status = "Paid"
+                            payment.transaction_id = payment_id
+                            payment.razorpay_payment_id = payment_id
+                            payment.payment_date = datetime.now()
+                            
+                            if candidate:
+                                if payment.payment_type == "Admission Fee":
+                                    candidate.admission_fee_paid = True
+                                    old_status = candidate.application_status
+                                    if candidate.auto_enroll_enabled:
+                                        candidate.application_status = "Enrolled"
+                                    else:
+                                        candidate.application_status = "Admission Fee Paid"
+                                        
+                                    from app.models.candidate_application import CandidateTimelineEvent
+                                    evt_status = CandidateTimelineEvent(
+                                        candidate_id=candidate.id,
+                                        event_type="Status Updated",
+                                        description=f"Status changed from {old_status} to {candidate.application_status} on automatic payment reconciliation.",
+                                        created_by="system_reconciliation"
+                                    )
+                                    db.add(evt_status)
+                                    
+                                from app.models.candidate_application import CandidateTimelineEvent
+                                evt_pay = CandidateTimelineEvent(
+                                    candidate_id=candidate.id,
+                                    event_type="Payment Successful",
+                                    description=f"Online payment of ₹{payment.amount} ({payment.payment_type}) reconciled successfully.",
+                                    created_by="system_reconciliation"
+                                )
+                                db.add(evt_pay)
+                            
+                            await db.commit()
+                            
+                            # Generate receipt
+                            try:
+                                await CandidateService.generate_and_upload_receipt(db, payment.id)
+                                # Refresh payment to get receipt number
+                                await db.refresh(payment)
+                            except Exception as re_err:
+                                logger.error(f"Failed to generate receipt during reconciliation: {re_err}")
+                            
+                            log_payment_audit(
+                                action="Automatic Reconciliation Success",
+                                candidate_id=payment.candidate_id,
+                                caf_number=caf_no,
+                                order_id=payment.razorpay_order_id,
+                                payment_id=payment_id,
+                                amount=payment.amount,
+                                verification_result="SUCCESS",
+                                receipt_number=payment.receipt_number or "N/A",
+                                client_ip="system"
+                            )
+                            return True
+                        else:
+                            log_payment_audit(
+                                action="Automatic Reconciliation Validation Failure",
+                                candidate_id=payment.candidate_id,
+                                caf_number="N/A",
+                                order_id=payment.razorpay_order_id,
+                                payment_id=item.get("id"),
+                                amount=float(amount_in_paise) / 100.0,
+                                verification_result=f"FAILED (Currency: {currency}, expected INR. Amount: {amount_in_paise}, expected: {int(payment.amount*100)})",
+                                client_ip="system"
+                            )
+    except Exception as e:
+        logger.error(f"Reconciliation error for order {payment.razorpay_order_id}: {str(e)}")
+        
+    return False
 
 
 @router.put("/{id}/offer")
@@ -741,10 +879,13 @@ async def upload_candidate_portal_document(
 @router.post("/portal/payments/create-order")
 async def candidate_portal_create_payment_order(
     data: CreateOrderRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_candidate: CandidateApplication = Depends(get_current_candidate)
 ):
     """Candidate: Verify and generate a Razorpay or mock order ID for payment."""
+    client_ip = request.client.host if request.client else "Unknown"
+    
     # 1. Fetch latest candidate state with payments loaded
     stmt = select(CandidateApplication).where(
         CandidateApplication.id == current_candidate.id,
@@ -809,6 +950,16 @@ async def candidate_portal_create_payment_order(
         payment.razorpay_order_id = mock_order_id
         payment.transaction_id = mock_order_id
         await db.commit()
+        
+        log_payment_audit(
+            action="Order Created (Sandbox)",
+            candidate_id=candidate.id,
+            caf_number=candidate.application_number,
+            order_id=mock_order_id,
+            amount=data.amount,
+            client_ip=client_ip
+        )
+        
         return {
             "success": True,
             "order_id": mock_order_id,
@@ -839,6 +990,16 @@ async def candidate_portal_create_payment_order(
                 razorpay_order_id = resp_json.get("id")
                 payment.razorpay_order_id = razorpay_order_id
                 await db.commit()
+                
+                log_payment_audit(
+                    action="Order Created",
+                    candidate_id=candidate.id,
+                    caf_number=candidate.application_number,
+                    order_id=razorpay_order_id,
+                    amount=data.amount,
+                    client_ip=client_ip
+                )
+                
                 return {
                     "success": True,
                     "order_id": razorpay_order_id,
@@ -871,6 +1032,14 @@ async def get_payment_status(
     if not payment:
         raise HTTPException(status_code=404, detail="Payment record not found")
         
+    # Automatic reconciliation if status remains Created/Pending
+    if payment.status != "Paid" and not order_id.startswith("order_mock_"):
+        await reconcile_payment_state(db, payment)
+        try:
+            await db.refresh(payment)
+        except Exception as ref_err:
+            logger.warning(f"Could not refresh payment state in status endpoint: {ref_err}")
+        
     return {
         "success": True,
         "status": payment.status,
@@ -883,10 +1052,13 @@ async def get_payment_status(
 @router.post("/portal/payments/verify")
 async def candidate_portal_verify_payment(
     data: VerifyPaymentRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_candidate: CandidateApplication = Depends(get_current_candidate)
 ):
     """Candidate: Verify Razorpay sandbox or check real payment status."""
+    client_ip = request.client.host if request.client else "Unknown"
+    
     stmt = select(CandidatePayment).where(
         CandidatePayment.razorpay_order_id == data.razorpay_order_id,
         CandidatePayment.candidate_id == current_candidate.id
@@ -939,7 +1111,23 @@ async def candidate_portal_verify_payment(
             
             # Generate receipt synchronously for sandbox
             await CandidateService.generate_and_upload_receipt(db, payment.id)
+            try:
+                await db.refresh(payment)
+            except Exception as ref_err:
+                logger.warning(f"Could not refresh payment state in verify endpoint: {ref_err}")
             
+        log_payment_audit(
+            action="Signature Verified (Sandbox/Mock)",
+            candidate_id=payment.candidate_id,
+            caf_number=payment.candidate.application_number if payment.candidate else "N/A",
+            order_id=data.razorpay_order_id,
+            payment_id=data.razorpay_payment_id,
+            amount=payment.amount,
+            verification_result="SUCCESS",
+            receipt_number=payment.receipt_number or "N/A",
+            client_ip=client_ip
+        )
+        
         return {"success": True, "sandbox": True, "detail": "Sandbox payment mock-verified successfully."}
         
     else:
@@ -956,6 +1144,16 @@ async def candidate_portal_verify_payment(
         ).hexdigest()
         
         if generated_signature != data.razorpay_signature:
+            log_payment_audit(
+                action="Signature Verification Failed (Real)",
+                candidate_id=payment.candidate_id,
+                caf_number=payment.candidate.application_number if payment.candidate else "N/A",
+                order_id=data.razorpay_order_id,
+                payment_id=data.razorpay_payment_id,
+                amount=payment.amount,
+                verification_result="FAILED",
+                client_ip=client_ip
+            )
             raise HTTPException(status_code=400, detail="Payment signature verification failed.")
             
         # We do NOT mark the payment as Paid here for real orders.
@@ -966,15 +1164,28 @@ async def candidate_portal_verify_payment(
             payment.razorpay_signature = data.razorpay_signature
             await db.commit()
             
+        log_payment_audit(
+            action="Signature Verified (Real, awaiting webhook)",
+            candidate_id=payment.candidate_id,
+            caf_number=payment.candidate.application_number if payment.candidate else "N/A",
+            order_id=data.razorpay_order_id,
+            payment_id=data.razorpay_payment_id,
+            amount=payment.amount,
+            verification_result="SUCCESS_AWAITING_WEBHOOK",
+            client_ip=client_ip
+        )
+            
         return {"success": True, "sandbox": False, "detail": "Signature verified. Awaiting webhook confirmation."}
 
 
 @router.post("/portal/payments/webhook")
+@webhook_router.post("/webhook")
 async def razorpay_payment_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """Razorpay Webhook: Capture payment completion events and transition state."""
+    client_ip = request.client.host if request.client else "Unknown"
     payload_body = await request.body()
     signature = request.headers.get("X-Razorpay-Signature")
     
@@ -1013,7 +1224,7 @@ async def razorpay_payment_webhook(
         payment_id = payment_entity.get("id")
         
         if not order_id or not payment_id:
-            logger.warning(f"Razorpay Webhook: Missing order_id or payment_id in payload: {event_data}")
+            logger.warning(f"Razorpay Webhook: Missing order_id or payment_id in payload")
             return {"success": False, "detail": "Missing identifiers"}
             
         # Fetch payment record
@@ -1027,9 +1238,52 @@ async def razorpay_payment_webhook(
             logger.warning(f"Razorpay Webhook: Payment record not found for order_id: {order_id}")
             return {"success": False, "detail": "Payment record not found"}
             
+        # Verify currency is INR
+        currency = payment_entity.get("currency")
+        if currency != "INR":
+            logger.warning(f"Razorpay Webhook: Invalid currency {currency} for payment {payment_id}")
+            log_payment_audit(
+                action="Webhook Payment Failed",
+                candidate_id=payment.candidate_id,
+                caf_number=payment.candidate.application_number if payment.candidate else "N/A",
+                order_id=order_id,
+                payment_id=payment_id,
+                amount=payment.amount,
+                verification_result=f"FAILED_CURRENCY (Received: {currency})",
+                client_ip=client_ip
+            )
+            return {"success": False, "detail": "Invalid currency"}
+
+        # Verify amount matches (within minor precision error or exact match in paise)
+        captured_amount_paise = payment_entity.get("amount")
+        expected_amount_paise = int(payment.amount * 100)
+        if abs(captured_amount_paise - expected_amount_paise) > 1:
+            logger.warning(f"Razorpay Webhook: Amount mismatch for payment {payment_id}. Captured: {captured_amount_paise}, Expected: {expected_amount_paise}")
+            log_payment_audit(
+                action="Webhook Payment Failed",
+                candidate_id=payment.candidate_id,
+                caf_number=payment.candidate.application_number if payment.candidate else "N/A",
+                order_id=order_id,
+                payment_id=payment_id,
+                amount=payment.amount,
+                verification_result=f"FAILED_AMOUNT_MISMATCH (Captured paise: {captured_amount_paise}, Expected: {expected_amount_paise})",
+                client_ip=client_ip
+            )
+            return {"success": False, "detail": "Amount mismatch"}
+            
         # Duplicate webhook protection
         if payment.status == "Paid":
             logger.info(f"Razorpay Webhook: Payment for order_id {order_id} is already processed as Paid.")
+            log_payment_audit(
+                action="Webhook Already Processed",
+                candidate_id=payment.candidate_id,
+                caf_number=payment.candidate.application_number if payment.candidate else "N/A",
+                order_id=order_id,
+                payment_id=payment_id,
+                amount=payment.amount,
+                verification_result="DUPLICATE_IGNORED",
+                client_ip=client_ip
+            )
             return {"success": True, "detail": "Already processed"}
             
         # Update payment record
@@ -1071,7 +1325,23 @@ async def razorpay_payment_webhook(
         await db.commit()
         
         # Generate PDF receipt and upload it
-        await CandidateService.generate_and_upload_receipt(db, payment.id)
+        try:
+            await CandidateService.generate_and_upload_receipt(db, payment.id)
+            await db.refresh(payment)
+        except Exception as receipt_err:
+            logger.error(f"Razorpay Webhook receipt generation failure: {receipt_err}")
+            
+        log_payment_audit(
+            action="Webhook Payment Success",
+            candidate_id=payment.candidate_id,
+            caf_number=candidate.application_number if candidate else "N/A",
+            order_id=order_id,
+            payment_id=payment_id,
+            amount=payment.amount,
+            verification_result="SUCCESS",
+            receipt_number=payment.receipt_number or "N/A",
+            client_ip=client_ip
+        )
         
     return {"success": True}
 
