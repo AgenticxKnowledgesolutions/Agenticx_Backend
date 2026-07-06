@@ -111,6 +111,9 @@ async def apply_candidate(
     If a 'token' field is present in the payload, validates it as a single-use
     conversion token, links lead_id, and marks the token as used on success.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     token_value = data.token  # Optional[str]
     resolved_lead_token = None
     existing_candidate = None
@@ -123,9 +126,11 @@ async def apply_candidate(
 
         if resolved_lead_token:
             if resolved_lead_token.used:
+                msg = f"Token {token_value} has already been marked as used."
+                logger.warning(f"Apply candidate failed: {msg}")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Your application has already been submitted. Please contact AgenticX if you need to modify your information."
+                    detail=f"Your application has already been submitted. (Detail: {msg})"
                 )
             
             # Find candidate by lead_id from LeadToken
@@ -160,9 +165,11 @@ async def apply_candidate(
 
     if existing_candidate:
         if existing_candidate.date_of_birth is not None:
+            msg = f"Candidate with email {existing_candidate.email} / phone {existing_candidate.phone} already completed application (App Ref: {existing_candidate.application_number})."
+            logger.warning(f"Apply candidate failed: {msg}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Your application has already been submitted. Please contact AgenticX if you need to modify your information."
+                detail=f"Your application has already been submitted. (Detail: {msg})"
             )
 
     try:
@@ -188,8 +195,10 @@ async def apply_candidate(
 
         return {"success": True, "application_number": candidate.application_number, "id": candidate.id}
     except HTTPException as e:
+        logger.warning(f"HTTPException in apply_candidate: status={e.status_code}, detail={e.detail}")
         raise e
     except Exception as e:
+        logger.error(f"Unexpected error in apply_candidate: {str(e)}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 @router.get("/")

@@ -10,7 +10,7 @@ import csv
 import io
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
-from sqlalchemy import select, or_, and_, func
+from sqlalchemy import select, or_, and_, func, delete
 from sqlalchemy.orm import selectinload, Session
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status, UploadFile
@@ -120,7 +120,8 @@ class CandidateService:
             or_(
                 CandidateApplication.email.ilike(email),
                 CandidateApplication.phone == phone
-            )
+            ),
+            CandidateApplication.is_deleted == False
         )
         existing_res = await db.execute(stmt)
         existing = existing_res.scalars().first()
@@ -589,6 +590,7 @@ class CandidateService:
         candidates = res.scalars().all()
         
         deleted_count = 0
+        from app.models.lead_token import LeadToken
         for candidate in candidates:
             candidate.is_deleted = True
             candidate.deleted_at = datetime.utcnow()
@@ -599,6 +601,14 @@ class CandidateService:
                 f"Candidate application moved to trash by bulk operation by {user_email}.",
                 user_email
             )
+            # Reset associated lead status and delete tokens
+            if candidate.lead_id:
+                lead_stmt = select(Lead).where(Lead.id == candidate.lead_id)
+                lead_res = await db.execute(lead_stmt)
+                lead = lead_res.scalar_one_or_none()
+                if lead:
+                    lead.status = "qualified"
+                    await db.execute(delete(LeadToken).where(LeadToken.lead_id == lead.id))
             deleted_count += 1
             
         await db.commit()
@@ -691,7 +701,16 @@ class CandidateService:
 
         # 2. Delete candidates from database
         deleted_count = 0
+        from app.models.lead_token import LeadToken
         for candidate in candidates:
+            # Reset associated lead status and delete tokens
+            if candidate.lead_id:
+                lead_stmt = select(Lead).where(Lead.id == candidate.lead_id)
+                lead_res = await db.execute(lead_stmt)
+                lead = lead_res.scalar_one_or_none()
+                if lead:
+                    lead.status = "qualified"
+                    await db.execute(delete(LeadToken).where(LeadToken.lead_id == lead.id))
             await db.delete(candidate)
             deleted_count += 1
 
@@ -1183,7 +1202,8 @@ class CandidateService:
                     or_(
                         CandidateApplication.email.ilike(email) if email else False,
                         CandidateApplication.phone == phone if phone else False
-                    )
+                    ),
+                    CandidateApplication.is_deleted == False
                 )
                 cand_res = await db.execute(cand_stmt)
                 existing_candidate = cand_res.scalars().first()
@@ -1467,16 +1487,40 @@ class CandidateService:
             c.drawString(col1_x, y, "Candidate Details")
             c.setFont("Helvetica", 10)
             c.setFillColor(DARK_TEXT)
+            # Resolve CAF/Application number dynamically without hardcoding
+            caf_number_val = None
+            for field in ["application_number", "caf_number", "application_id", "id"]:
+                if hasattr(candidate, field):
+                    val = getattr(candidate, field)
+                    if val:
+                        caf_number_val = val
+                        break
+            if not caf_number_val:
+                caf_number_val = getattr(candidate, "id", "N/A")
+
+            # Resolve Program/Course name dynamically without hardcoding
+            course_name_val = None
+            for field in ["course_applied", "course_name", "program_name"]:
+                if hasattr(candidate, field):
+                    val = getattr(candidate, field)
+                    if val:
+                        course_name_val = val
+                        break
+            if not course_name_val and hasattr(candidate, "program") and candidate.program:
+                course_name_val = getattr(candidate.program, "name", None)
+            if not course_name_val:
+                course_name_val = "N/A"
+
             c.drawString(col1_x, y - 6 * mm, f"Name: {candidate.full_name}")
             c.drawString(col1_x, y - 12 * mm, f"Email: {candidate.email}")
             c.drawString(col1_x, y - 18 * mm, f"Phone: {candidate.phone}")
-            c.drawString(col1_x, y - 24 * mm, f"CAF Number: {candidate.caf_number or 'N/A'}")
+            c.drawString(col1_x, y - 24 * mm, f"CAF Number: {caf_number_val}")
             
             c.setFillColor(DARK_TEXT)
             c.setFont("Helvetica-Bold", 11)
             c.drawString(col1_x, y - 36 * mm, "Program Details")
             c.setFont("Helvetica", 10)
-            c.drawString(col1_x, y - 42 * mm, f"Program: {candidate.course_name or 'N/A'}")
+            c.drawString(col1_x, y - 42 * mm, f"Program: {course_name_val}")
             c.drawString(col1_x, y - 48 * mm, f"Type: {candidate.program_type or 'N/A'}")
             
             # Payment Info (Right Column)
