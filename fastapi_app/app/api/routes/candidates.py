@@ -1054,6 +1054,7 @@ async def get_payment_status(
         "status": payment.status,
         "amount": payment.amount,
         "payment_type": payment.payment_type,
+        "receipt_number": payment.receipt_number,
         "receipt_url": payment.receipt_url
     }
 

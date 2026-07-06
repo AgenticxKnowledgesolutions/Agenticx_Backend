@@ -546,7 +546,9 @@ class CandidateService:
                 "status": p.status,
                 "transaction_id": p.transaction_id,
                 "payment_date": p.payment_date,
-                "created_at": p.created_at
+                "created_at": p.created_at,
+                "receipt_number": p.receipt_number,
+                "receipt_url": p.receipt_url
             } for p in candidate.payments
         ]
         return r_dict
