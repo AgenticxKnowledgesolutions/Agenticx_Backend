@@ -1344,3 +1344,209 @@ class CandidateService:
                 )
             except Exception as e:
                 logger.error(f"Error executing background import for file {filename}: {e}", exc_info=True)
+
+    @classmethod
+    async def generate_and_upload_receipt(cls, db: AsyncSession, payment_id: str) -> None:
+        """
+        Generates a PDF receipt for a payment, uploads it to Supabase Storage,
+        and updates the payment record with receipt_number and receipt_url.
+        """
+        from app.models.candidate_payment import CandidatePayment
+        
+        # 1. Fetch payment and candidate details
+        stmt = select(CandidatePayment).where(CandidatePayment.id == payment_id).options(
+            selectinload(CandidatePayment.candidate).selectinload(CandidateApplication.payments)
+        )
+        res = await db.execute(stmt)
+        payment = res.scalar_one_or_none()
+        if not payment:
+            logger.error(f"Payment with ID {payment_id} not found for receipt generation.")
+            return
+
+        candidate = payment.candidate
+        
+        # 2. Generate unique receipt number if not present
+        if not payment.receipt_number:
+            payment.receipt_number = f"REC-{payment.id[:8].upper()}"
+            
+        # 3. Generate PDF
+        try:
+            import io
+            import os
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.units import mm
+            from reportlab.lib.colors import HexColor
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.utils import ImageReader
+            
+            pdf_buffer = io.BytesIO()
+            c = canvas.Canvas(pdf_buffer, pagesize=A4)
+            width, height = A4
+            margin = 22 * mm
+            content_w = width - 2 * margin
+            
+            # Branded design system colors
+            NAVY = HexColor("#16263F")
+            TEAL = HexColor("#1F9C9C")
+            DARK_TEXT = HexColor("#262B33")
+            GREY_TEXT = HexColor("#6B7280")
+            HAIRLINE = HexColor("#D8DEE6")
+            
+            # Top accent bar
+            c.setFillColor(NAVY)
+            c.rect(0, height - 4 * mm, width, 4 * mm, fill=1, stroke=0)
+            c.setFillColor(TEAL)
+            c.rect(0, height - 4 * mm, width * 0.32, 4 * mm, fill=1, stroke=0)
+            
+            # Header (centered logo & text)
+            top = height - 18 * mm
+            logo_size = 18 * mm
+            
+            logo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "AgenticX-removebg-preview.png")
+            try:
+                logo_img = ImageReader(logo_path)
+                c.drawImage(
+                    logo_img,
+                    width / 2 - logo_size / 2,
+                    top - logo_size,
+                    width=logo_size,
+                    height=logo_size,
+                    mask="auto",
+                    preserveAspectRatio=True,
+                )
+            except Exception:
+                c.setFillColor(NAVY)
+                c.roundRect(width / 2 - logo_size / 2, top - logo_size, logo_size, logo_size, 3 * mm, fill=1, stroke=0)
+                c.setFillColor(HexColor("#FFFFFF"))
+                c.setFont("Helvetica-Bold", 8)
+                c.drawCentredString(width / 2, top - logo_size / 2 - 2, "AgenticX")
+                
+            name_y = top - logo_size - 6 * mm
+            c.setFillColor(NAVY)
+            c.setFont("Helvetica-Bold", 20)
+            c.drawCentredString(width / 2, name_y, "AgenticX Knowledge Solutions")
+            
+            c.setFillColor(GREY_TEXT)
+            c.setFont("Helvetica", 9)
+            c.drawCentredString(width / 2, name_y - 5 * mm, "3rd Floor, Raj Plaza, Town Limit, Kollam, Kerala")
+            c.drawCentredString(width / 2, name_y - 9 * mm, "www.agenticx.co.in  |  anju.muraleedharan@agenticx.co.in  |  +91 94965 52094")
+            
+            rule_y = name_y - 14 * mm
+            c.setStrokeColor(TEAL)
+            c.setLineWidth(1.2)
+            c.line(margin, rule_y, width - margin, rule_y)
+            
+            # Receipt Title & Meta
+            title_y = rule_y - 10 * mm
+            c.setFillColor(NAVY)
+            c.setFont("Helvetica-Bold", 14)
+            c.drawString(margin, title_y, "PAYMENT RECEIPT")
+            
+            c.setFont("Helvetica-Bold", 10)
+            c.setFillColor(DARK_TEXT)
+            c.drawRightString(width - margin, title_y, f"Receipt No: {payment.receipt_number}")
+            c.setFont("Helvetica", 10)
+            c.setFillColor(GREY_TEXT)
+            pay_date_str = payment.payment_date.strftime('%d-%b-%Y') if payment.payment_date else datetime.now().strftime('%d-%b-%Y')
+            c.drawRightString(width - margin, title_y - 5 * mm, f"Date: {pay_date_str}")
+            
+            # Details Section Box
+            box_top = title_y - 12 * mm
+            box_h = 75 * mm
+            c.setStrokeColor(HAIRLINE)
+            c.setFillColor(HexColor("#F9FAFB"))
+            c.roundRect(margin, box_top - box_h, content_w, box_h, 3 * mm, fill=1, stroke=1)
+            
+            # Candidate Info (Left Column)
+            c.setFillColor(DARK_TEXT)
+            c.setFont("Helvetica-Bold", 11)
+            col1_x = margin + 6 * mm
+            col2_x = margin + content_w / 2 + 4 * mm
+            
+            y = box_top - 8 * mm
+            c.drawString(col1_x, y, "Candidate Details")
+            c.setFont("Helvetica", 10)
+            c.setFillColor(DARK_TEXT)
+            c.drawString(col1_x, y - 6 * mm, f"Name: {candidate.full_name}")
+            c.drawString(col1_x, y - 12 * mm, f"Email: {candidate.email}")
+            c.drawString(col1_x, y - 18 * mm, f"Phone: {candidate.phone}")
+            c.drawString(col1_x, y - 24 * mm, f"CAF Number: {candidate.caf_number or 'N/A'}")
+            
+            c.setFillColor(DARK_TEXT)
+            c.setFont("Helvetica-Bold", 11)
+            c.drawString(col1_x, y - 36 * mm, "Program Details")
+            c.setFont("Helvetica", 10)
+            c.drawString(col1_x, y - 42 * mm, f"Program: {candidate.course_name or 'N/A'}")
+            c.drawString(col1_x, y - 48 * mm, f"Type: {candidate.program_type or 'N/A'}")
+            
+            # Payment Info (Right Column)
+            c.setFillColor(DARK_TEXT)
+            c.setFont("Helvetica-Bold", 11)
+            c.drawString(col2_x, y, "Payment Details")
+            c.setFont("Helvetica", 10)
+            c.drawString(col2_x, y - 6 * mm, f"Payment Type: {payment.payment_type}")
+            c.drawString(col2_x, y - 12 * mm, f"Method: {payment.payment_method}")
+            txn_id = payment.transaction_id or "N/A"
+            if len(txn_id) > 28:
+                c.drawString(col2_x, y - 18 * mm, "Transaction ID:")
+                c.setFont("Helvetica", 8)
+                c.drawString(col2_x, y - 22 * mm, txn_id)
+                c.setFont("Helvetica", 10)
+                y_offset = 4 * mm
+            else:
+                c.drawString(col2_x, y - 18 * mm, f"Transaction ID: {txn_id}")
+                y_offset = 0.0
+                
+            c.drawString(col2_x, y - 24 * mm - y_offset, f"Status: {payment.status}")
+            
+            # Financial Overview
+            c.setFillColor(DARK_TEXT)
+            c.setFont("Helvetica-Bold", 11)
+            c.drawString(col2_x, y - 36 * mm - y_offset, "Financial Overview")
+            c.setFont("Helvetica", 10)
+            c.drawString(col2_x, y - 42 * mm - y_offset, f"Final Payable Amount: INR {candidate.final_payable_amount:.2f}")
+            
+            # Calculate financials
+            total_paid = sum(p.amount for p in candidate.payments if p.status == "Paid")
+            if payment.status == "Paid" and payment.id not in [p.id for p in candidate.payments]:
+                total_paid += payment.amount
+                
+            remaining_bal = max(0.0, candidate.final_payable_amount - total_paid)
+            
+            c.drawString(col2_x, y - 48 * mm - y_offset, f"Total Paid to Date: INR {total_paid:.2f}")
+            c.drawString(col2_x, y - 54 * mm - y_offset, f"Remaining Balance: INR {remaining_bal:.2f}")
+            
+            c.setFont("Helvetica-Bold", 12)
+            c.setFillColor(HexColor("#10B981"))
+            c.drawString(col2_x, y - 64 * mm - y_offset, f"Amount Paid: INR {payment.amount:.2f}")
+            
+            # Footer
+            sig_y = box_top - box_h - 25 * mm
+            c.setStrokeColor(HAIRLINE)
+            c.setLineWidth(0.5)
+            c.line(margin, sig_y + 10 * mm, width - margin, sig_y + 10 * mm)
+            
+            c.setFont("Helvetica", 8)
+            c.setFillColor(GREY_TEXT)
+            c.drawString(margin, sig_y, "This is a computer-generated document. No signature required.")
+            c.drawRightString(width - margin, sig_y, "Thank you for choosing AgenticX.")
+            
+            c.showPage()
+            c.save()
+            pdf_bytes = pdf_buffer.getvalue()
+            
+            # Upload to storage
+            uploader = UploadService()
+            url = await uploader.upload_file(
+                file_content=pdf_bytes,
+                folder="receipts",
+                original_filename=f"receipt_{payment.receipt_number}.pdf",
+                mime_type="application/pdf"
+            )
+            payment.receipt_url = url
+            await db.commit()
+            logger.info(f"Generated and uploaded receipt {payment.receipt_number} to {url}")
+            
+        except Exception as e:
+            logger.error(f"Error generating receipt PDF for payment {payment_id}: {e}", exc_info=True)
+

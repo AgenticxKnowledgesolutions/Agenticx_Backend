@@ -18,4 +18,11 @@ class CandidatePayment(Base):
     payment_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    receipt_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    receipt_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    razorpay_order_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    razorpay_payment_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
+    razorpay_signature: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     candidate: Mapped["CandidateApplication"] = relationship("CandidateApplication", back_populates="payments")
+

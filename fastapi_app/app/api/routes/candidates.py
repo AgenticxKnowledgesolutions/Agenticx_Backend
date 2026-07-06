@@ -1,5 +1,5 @@
 import json
-from fastapi import APIRouter, Depends, status, HTTPException, UploadFile, File, Form, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, status, HTTPException, UploadFile, File, Form, Query, BackgroundTasks, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List, Dict
@@ -683,6 +683,9 @@ async def record_candidate_payment(
         db.add(evt_pay)
         await db.commit()
         
+        # Generate receipt
+        await CandidateService.generate_and_upload_receipt(db, payment.id)
+        
         return await CandidateService.get_application_by_id(db, id)
     except HTTPException:
         raise
@@ -738,19 +741,78 @@ async def upload_candidate_portal_document(
 @router.post("/portal/payments/create-order")
 async def candidate_portal_create_payment_order(
     data: CreateOrderRequest,
+    db: AsyncSession = Depends(get_db),
     current_candidate: CandidateApplication = Depends(get_current_candidate)
 ):
-    """Candidate: Generate a Razorpay or mock order ID for payment verification."""
-    amount = data.amount
-    amount_in_paise = int(amount * 100)
+    """Candidate: Verify and generate a Razorpay or mock order ID for payment."""
+    # 1. Fetch latest candidate state with payments loaded
+    stmt = select(CandidateApplication).where(
+        CandidateApplication.id == current_candidate.id,
+        CandidateApplication.is_deleted == False
+    ).options(selectinload(CandidateApplication.payments))
+    res = await db.execute(stmt)
+    candidate = res.scalar_one_or_none()
+    
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+        
+    # 2. Check if candidate status is active
+    if candidate.application_status == "Rejected":
+         raise HTTPException(status_code=400, detail="This candidate application has been rejected.")
+         
+    # 3. Check if offer has expired
+    if candidate.offer_expiry_date:
+        now = datetime.now(candidate.offer_expiry_date.tzinfo) if candidate.offer_expiry_date.tzinfo else datetime.now()
+        if candidate.offer_expiry_date < now:
+            raise HTTPException(status_code=400, detail="The offer for this candidate has expired.")
+            
+    # 4. Check if standard_course_fee > 0 (or final_payable_amount > 0)
+    if data.payment_type != "Admission Fee" and candidate.final_payable_amount <= 0:
+        raise HTTPException(status_code=400, detail="No payable amount set for this candidate.")
+        
+    # 5. Check remaining balance
+    if data.payment_type == "Admission Fee":
+        if candidate.admission_fee_paid:
+            raise HTTPException(status_code=400, detail="Admission fee has already been paid.")
+        remaining = candidate.admission_fee_amount
+    else:
+        course_paid = sum(
+            p.amount for p in candidate.payments 
+            if p.status == "Paid" and p.payment_type != "Admission Fee"
+        )
+        remaining = max(0.0, candidate.final_payable_amount - course_paid)
+        
+    if data.amount <= 0:
+        raise HTTPException(status_code=400, detail="Payment amount must be greater than 0.")
+        
+    if data.amount > remaining:
+        raise HTTPException(status_code=400, detail=f"Amount exceeds remaining balance of INR {remaining:.2f}.")
+
+    # 6. Create local CandidatePayment record with status 'Created'
+    payment = CandidatePayment(
+        candidate_id=candidate.id,
+        amount=data.amount,
+        payment_type=data.payment_type,
+        payment_method="Razorpay",
+        status="Created",
+    )
+    db.add(payment)
+    await db.flush()  # Generate payment.id
+
+    amount_in_paise = int(data.amount * 100)
     key_id = settings.RAZORPAY_KEY_ID
     key_secret = settings.RAZORPAY_KEY_SECRET
     
     if not key_id or not key_secret:
+        # Sandbox / Mock payment
+        mock_order_id = f"order_mock_{uuid.uuid4().hex[:12]}"
+        payment.razorpay_order_id = mock_order_id
+        payment.transaction_id = mock_order_id
+        await db.commit()
         return {
             "success": True,
-            "order_id": f"order_mock_{uuid.uuid4().hex[:12]}",
-            "amount": amount,
+            "order_id": mock_order_id,
+            "amount": data.amount,
             "currency": "INR",
             "key": "mock_key_id",
             "sandbox": True
@@ -768,16 +830,19 @@ async def candidate_portal_create_payment_order(
         order_data = {
             "amount": amount_in_paise,
             "currency": "INR",
-            "receipt": f"rcpt_{uuid.uuid4().hex[:12]}"
+            "receipt": f"rcpt_{payment.id[:12]}"
         }
         async with httpx.AsyncClient() as client:
             response = await client.post(url, json=order_data, headers=headers, timeout=10.0)
             if response.status_code == 200:
                 resp_json = response.json()
+                razorpay_order_id = resp_json.get("id")
+                payment.razorpay_order_id = razorpay_order_id
+                await db.commit()
                 return {
                     "success": True,
-                    "order_id": resp_json.get("id"),
-                    "amount": amount,
+                    "order_id": razorpay_order_id,
+                    "amount": data.amount,
                     "currency": "INR",
                     "key": key_id,
                     "sandbox": False
@@ -790,24 +855,95 @@ async def candidate_portal_create_payment_order(
         raise HTTPException(status_code=500, detail="Failed to connect to payment gateway")
 
 
+@router.get("/portal/payments/status/{order_id}")
+async def get_payment_status(
+    order_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_candidate: CandidateApplication = Depends(get_current_candidate)
+):
+    """Check status of a payment by Razorpay order ID or transaction ID."""
+    stmt = select(CandidatePayment).where(
+        CandidatePayment.razorpay_order_id == order_id,
+        CandidatePayment.candidate_id == current_candidate.id
+    )
+    res = await db.execute(stmt)
+    payment = res.scalar_one_or_none()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment record not found")
+        
+    return {
+        "success": True,
+        "status": payment.status,
+        "amount": payment.amount,
+        "payment_type": payment.payment_type,
+        "receipt_url": payment.receipt_url
+    }
+
+
 @router.post("/portal/payments/verify")
 async def candidate_portal_verify_payment(
     data: VerifyPaymentRequest,
     db: AsyncSession = Depends(get_db),
     current_candidate: CandidateApplication = Depends(get_current_candidate)
 ):
-    """Candidate: Verify Razorpay webhook signature and record transaction."""
-    stmt = select(CandidateApplication).where(CandidateApplication.id == current_candidate.id)
+    """Candidate: Verify Razorpay sandbox or check real payment status."""
+    stmt = select(CandidatePayment).where(
+        CandidatePayment.razorpay_order_id == data.razorpay_order_id,
+        CandidatePayment.candidate_id == current_candidate.id
+    ).options(selectinload(CandidatePayment.candidate))
     res = await db.execute(stmt)
-    candidate = res.scalar_one_or_none()
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Candidate not found")
+    payment = res.scalar_one_or_none()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment record not found")
         
     # Signature verification
     is_valid = False
     if data.razorpay_order_id.startswith("order_mock_"):
         is_valid = True
+        
+        # In sandbox, since there is no real webhook, we mark it Paid here
+        if payment.status != "Paid":
+            payment.status = "Paid"
+            payment.transaction_id = data.razorpay_payment_id
+            payment.payment_date = datetime.now()
+            payment.razorpay_signature = data.razorpay_signature
+            
+            # Progress candidate status for Admission Fee
+            candidate = payment.candidate
+            if payment.payment_type == "Admission Fee":
+                candidate.admission_fee_paid = True
+                old_status = candidate.application_status
+                if candidate.auto_enroll_enabled:
+                    candidate.application_status = "Enrolled"
+                else:
+                    candidate.application_status = "Admission Fee Paid"
+                    
+                from app.models.candidate_application import CandidateTimelineEvent
+                evt_status = CandidateTimelineEvent(
+                    candidate_id=candidate.id,
+                    event_type="Status Updated",
+                    description=f"Status changed from {old_status} to {candidate.application_status} on successful online payment (Mock)",
+                    created_by=candidate.email
+                )
+                db.add(evt_status)
+                
+            from app.models.candidate_application import CandidateTimelineEvent
+            evt_pay = CandidateTimelineEvent(
+                candidate_id=candidate.id,
+                event_type="Payment Successful",
+                description=f"Online payment of ₹{payment.amount} ({payment.payment_type}) via Mock Razorpay verified successfully.",
+                created_by=candidate.email
+            )
+            db.add(evt_pay)
+            await db.commit()
+            
+            # Generate receipt synchronously for sandbox
+            await CandidateService.generate_and_upload_receipt(db, payment.id)
+            
+        return {"success": True, "sandbox": True, "detail": "Sandbox payment mock-verified successfully."}
+        
     else:
+        # Real Razorpay checkout verification
         key_secret = settings.RAZORPAY_KEY_SECRET
         if not key_secret:
             raise HTTPException(status_code=500, detail="Payment gateway credentials missing.")
@@ -819,49 +955,123 @@ async def candidate_portal_verify_payment(
             hashlib.sha256
         ).hexdigest()
         
-        if generated_signature == data.razorpay_signature:
-            is_valid = True
+        if generated_signature != data.razorpay_signature:
+            raise HTTPException(status_code=400, detail="Payment signature verification failed.")
             
-    if not is_valid:
-        raise HTTPException(status_code=400, detail="Payment signature verification failed.")
-        
-    # Record payment
-    payment = CandidatePayment(
-        candidate_id=candidate.id,
-        amount=data.amount,
-        payment_type=data.payment_type,
-        payment_method="Razorpay",
-        status="Paid",
-        transaction_id=data.razorpay_payment_id,
-        payment_date=datetime.now()
-    )
-    db.add(payment)
+        # We do NOT mark the payment as Paid here for real orders.
+        # We only save the transaction_id and razorpay_signature for reference/recovery
+        # but keep status as "Created" or "Pending" if not already "Paid" by the webhook.
+        if payment.status != "Paid":
+            payment.transaction_id = data.razorpay_payment_id
+            payment.razorpay_signature = data.razorpay_signature
+            await db.commit()
+            
+        return {"success": True, "sandbox": False, "detail": "Signature verified. Awaiting webhook confirmation."}
+
+
+@router.post("/portal/payments/webhook")
+async def razorpay_payment_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """Razorpay Webhook: Capture payment completion events and transition state."""
+    payload_body = await request.body()
+    signature = request.headers.get("X-Razorpay-Signature")
     
-    # Status progression
-    from app.models.candidate_application import CandidateTimelineEvent
-    if data.payment_type == "Admission Fee":
-        candidate.admission_fee_paid = True
-        old_status = candidate.application_status
-        if candidate.auto_enroll_enabled:
-            candidate.application_status = "Enrolled"
-        else:
-            candidate.application_status = "Admission Fee Paid"
+    if not signature:
+        logger.warning("Razorpay Webhook: Missing X-Razorpay-Signature header")
+        raise HTTPException(status_code=400, detail="Missing signature")
+        
+    webhook_secret = settings.RAZORPAY_WEBHOOK_SECRET
+    if not webhook_secret:
+        logger.warning("Razorpay Webhook: Webhook secret not configured in settings")
+        raise HTTPException(status_code=500, detail="Webhook configuration missing")
+        
+    # Verify signature
+    generated_signature = hmac.new(
+        webhook_secret.encode('utf-8'),
+        payload_body,
+        hashlib.sha256
+    ).hexdigest()
+    
+    if not hmac.compare_digest(generated_signature, signature):
+        logger.warning("Razorpay Webhook: Signature verification failed")
+        raise HTTPException(status_code=400, detail="Signature verification failed")
+        
+    try:
+        event_data = json.loads(payload_body.decode('utf-8'))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+        
+    event_type = event_data.get("event")
+    logger.info(f"Received Razorpay webhook event: {event_type}")
+    
+    # Handle events that signify payment success: payment.captured or order.paid
+    if event_type in ["payment.captured", "order.paid"]:
+        payment_entity = event_data.get("payload", {}).get("payment", {}).get("entity", {})
+        order_id = payment_entity.get("order_id")
+        payment_id = payment_entity.get("id")
+        
+        if not order_id or not payment_id:
+            logger.warning(f"Razorpay Webhook: Missing order_id or payment_id in payload: {event_data}")
+            return {"success": False, "detail": "Missing identifiers"}
             
-        evt_status = CandidateTimelineEvent(
+        # Fetch payment record
+        stmt = select(CandidatePayment).where(
+            CandidatePayment.razorpay_order_id == order_id
+        ).options(selectinload(CandidatePayment.candidate))
+        res = await db.execute(stmt)
+        payment = res.scalar_one_or_none()
+        
+        if not payment:
+            logger.warning(f"Razorpay Webhook: Payment record not found for order_id: {order_id}")
+            return {"success": False, "detail": "Payment record not found"}
+            
+        # Duplicate webhook protection
+        if payment.status == "Paid":
+            logger.info(f"Razorpay Webhook: Payment for order_id {order_id} is already processed as Paid.")
+            return {"success": True, "detail": "Already processed"}
+            
+        # Update payment record
+        payment.status = "Paid"
+        payment.transaction_id = payment_id
+        payment.razorpay_payment_id = payment_id
+        payment.razorpay_signature = signature
+        payment.payment_date = datetime.now()
+        
+        candidate = payment.candidate
+        
+        # Progress candidate status if Admission Fee
+        if payment.payment_type == "Admission Fee":
+            candidate.admission_fee_paid = True
+            old_status = candidate.application_status
+            if candidate.auto_enroll_enabled:
+                candidate.application_status = "Enrolled"
+            else:
+                candidate.application_status = "Admission Fee Paid"
+                
+            from app.models.candidate_application import CandidateTimelineEvent
+            evt_status = CandidateTimelineEvent(
+                candidate_id=candidate.id,
+                event_type="Status Updated",
+                description=f"Status changed from {old_status} to {candidate.application_status} on successful online payment via Razorpay Webhook",
+                created_by="Razorpay Webhook"
+            )
+            db.add(evt_status)
+            
+        from app.models.candidate_application import CandidateTimelineEvent
+        evt_pay = CandidateTimelineEvent(
             candidate_id=candidate.id,
-            event_type="Status Updated",
-            description=f"Status changed from {old_status} to {candidate.application_status} on successful online payment",
-            created_by=candidate.email
+            event_type="Payment Successful",
+            description=f"Online payment of ₹{payment.amount} ({payment.payment_type}) via Razorpay verified by Webhook.",
+            created_by="Razorpay Webhook"
         )
-        db.add(evt_status)
+        db.add(evt_pay)
         
-    evt_pay = CandidateTimelineEvent(
-        candidate_id=candidate.id,
-        event_type="Payment Successful",
-        description=f"Online payment of ₹{data.amount} ({data.payment_type}) via Razorpay verified successfully.",
-        created_by=candidate.email
-    )
-    db.add(evt_pay)
-    await db.commit()
-    
-    return {"success": True, "detail": f"Payment of ₹{data.amount} verified successfully."}
+        await db.commit()
+        
+        # Generate PDF receipt and upload it
+        await CandidateService.generate_and_upload_receipt(db, payment.id)
+        
+    return {"success": True}
+
