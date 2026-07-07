@@ -492,15 +492,16 @@ class CertificateService:
 
         # estimate panel height by laying out text first into a buffer
         temp_y = panel_top - pad
-        c.setFont("Helvetica", 10)
         row_heights = []
         for label, value in detail_rows:
+            font_to_use = "Helvetica-Bold" if label == "In Association With" else "Helvetica"
+            c.setFont(font_to_use, 10)
             lines_needed = 1
             words = value.split(" ")
             line = ""
             for word in words:
                 test = f"{line} {word}".strip()
-                if c.stringWidth(test, "Helvetica", 10) <= (content_w - label_w - pad * 2):
+                if c.stringWidth(test, font_to_use, 10) <= (content_w - label_w - pad * 2):
                     line = test
                 else:
                     lines_needed += 1
@@ -525,11 +526,12 @@ class CertificateService:
             c.setFont("Helvetica-Bold", 9.5)
             c.setFillColor(NAVY_SOFT)
             c.drawString(margin + pad, cy, f"{label}:")
+            value_font = "Helvetica-Bold" if label == "In Association With" else "Helvetica"
             wrapped_end = draw_wrapped_text(
                 c, value,
                 margin + pad + label_w, cy + 0.1 * mm,
                 content_w - label_w - pad * 2,
-                font="Helvetica", size=10, leading=row_leading, color=DARK_TEXT,
+                font=value_font, size=10, leading=row_leading, color=DARK_TEXT,
             )
             # advance cy by however many lines were used
             lines_used = round((cy - wrapped_end) / row_leading)
