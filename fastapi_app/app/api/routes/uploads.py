@@ -7,7 +7,7 @@ router = APIRouter(prefix="/uploads", tags=["uploads"])
 
 ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 ALLOWED_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp"}
-ALLOWED_IMAGE_FOLDERS = {"courses/thumbnails", "activities/banners", "reviews", "team", "blogs"}
+ALLOWED_IMAGE_FOLDERS = {"courses/thumbnails", "activities/banners", "reviews", "team", "blogs", "collaborators"}
 
 ALLOWED_PDF_EXTENSIONS = {"pdf"}
 ALLOWED_PDF_MIMES = {"application/pdf"}

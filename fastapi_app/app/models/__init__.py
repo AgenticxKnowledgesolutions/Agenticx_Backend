@@ -16,6 +16,7 @@ from app.models.candidate_payment import CandidatePayment
 from app.models.admin_notification import AdminNotification
 from app.models.job import Job, JobApplication
 from app.models.program import Program
+from app.models.collaborator import Collaborator
 
 __all__ = [
     "Base",
@@ -24,6 +25,7 @@ __all__ = [
     "Activity", "ActivityType",
     "Course", "TechStack", "CurriculumMonth", "CurriculumModule", "CourseMode", "CourseDifficulty",
     "Program",
+    "Collaborator",
     "Lead",
     "LeadNote",
     "LeadTimelineEvent",
@@ -40,4 +42,5 @@ __all__ = [
     "Job",
     "JobApplication"
 ]
+
 
