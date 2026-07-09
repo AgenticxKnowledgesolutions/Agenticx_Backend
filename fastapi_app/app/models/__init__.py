@@ -17,6 +17,7 @@ from app.models.admin_notification import AdminNotification
 from app.models.job import Job, JobApplication
 from app.models.program import Program
 from app.models.collaborator import Collaborator
+from app.models.placed_student import PlacedStudent
 
 __all__ = [
     "Base",
@@ -26,6 +27,7 @@ __all__ = [
     "Course", "TechStack", "CurriculumMonth", "CurriculumModule", "CourseMode", "CourseDifficulty",
     "Program",
     "Collaborator",
+    "PlacedStudent",
     "Lead",
     "LeadNote",
     "LeadTimelineEvent",
