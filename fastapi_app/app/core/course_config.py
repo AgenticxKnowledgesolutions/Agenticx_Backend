@@ -101,7 +101,7 @@ COURSE_CONFIG = [
             "web development",
             "full stack"
         ],
-        "topics": "Python Programming, HTML5, CSS3, JavaScript, React, Django/Flask Frameworks, RESTful APIs, Relational Databases, and Cloud Deployment"
+        "topics": "Python Programming, HTML5, CSS3, JavaScript, Django/Flask Frameworks, APIs, Relational Databases, and SQL"
     },
     {
         "id": "react_native",
