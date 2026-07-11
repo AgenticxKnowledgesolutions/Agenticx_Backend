@@ -292,11 +292,27 @@ class CertificateService:
         # Resolve Program and template
         from sqlalchemy import select
         from app.models.program import Program
-        cert_template = "completion"
-        program_type = candidate.program_type or "Course"
         
+        # Use candidate.program_type as the primary source of truth, falling back to program.program_type if not set
+        db_program_type = candidate.program_type
+        db_program = None
+        if candidate.program_id:
+            result_p = await db.execute(select(Program).where(Program.id == candidate.program_id))
+            db_program = result_p.scalar_one_or_none()
+            
+        program_type = db_program_type
+        if not program_type and db_program:
+            program_type = db_program.program_type
+        if not program_type:
+            program_type = "Course"
+            
+        cert_template = "completion"
+        if db_program and db_program.certificate_template:
+            cert_template = db_program.certificate_template
+            
         prog_type_lower = (program_type or "").lower()
         course_lower = course_applied.lower()
+        
         if (
             prog_type_lower in ["fdp", "faculty development programme"] or
             "fdp" in course_lower or
@@ -304,13 +320,7 @@ class CertificateService:
         ):
             cert_template = "fdp"
             program_type = "Faculty Development Programme"
-        elif candidate.program_id:
-            result_p = await db.execute(select(Program).where(Program.id == candidate.program_id))
-            program = result_p.scalar_one_or_none()
-            if program:
-                cert_template = program.certificate_template or "completion"
-                program_type = program.program_type or program_type
-        else:
+        elif not candidate.program_id:
             # Fallback for existing records based on program type or name
             if (
                 "webinar" in course_lower or

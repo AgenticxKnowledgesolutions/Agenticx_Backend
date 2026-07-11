@@ -321,3 +321,59 @@ async def test_fdp_certificate_generation():
             # Generate and verify save
             updated_candidate = await CertificateService.generate_and_save_certificate(mock_db, candidate)
             assert updated_candidate.certificate_url == "https://supabase/fdp-cert.pdf"
+
+
+@pytest.mark.asyncio
+async def test_candidate_program_type_precedence():
+    mock_db = AsyncMock()
+    
+    # Setup candidate record where program_type is overridden to "Internship"
+    # even though program_id points to a Program with program_type="Course"
+    candidate = CandidateApplication(
+        id="cand-intern-1",
+        application_number="CAF-INT-111",
+        full_name="Jane Doe",
+        email="jane.doe@example.com",
+        course_applied="Data Science & Analytics",
+        program_type="Internship",
+        program_id="prog-course-123",
+        course_start_date=datetime(2026, 7, 1),
+        completed_at=datetime(2026, 7, 31),
+        gender="female",
+        performance="Excellent"
+    )
+    
+    mock_prog = Program(
+        id="prog-course-123",
+        name="Data Science & Analytics",
+        program_type="Course",
+        certificate_template="completion"
+    )
+    
+    mock_res = MagicMock()
+    mock_res.scalar_one_or_none.return_value = mock_prog
+    mock_db.execute.return_value = mock_res
+    
+    from app.services.certificate_service import draw_wrapped_text
+    
+    # Mock supabase upload
+    with patch("app.services.certificate_service.CertificateUploadService.upload_certificate", new_callable=AsyncMock) as mock_upload:
+        mock_upload.return_value = "https://supabase/intern-cert.pdf"
+        
+        # Mock create_certificate_token
+        with patch("app.services.certificate_service.create_certificate_token") as mock_token:
+            mock_token.return_value = "signed-intern-token"
+            
+            # Patch draw_wrapped_text to spy on parameters
+            with patch("app.services.certificate_service.draw_wrapped_text", side_effect=draw_wrapped_text) as mock_draw:
+                # Generate and verify save
+                updated_candidate = await CertificateService.generate_and_save_certificate(mock_db, candidate)
+                assert updated_candidate.certificate_url == "https://supabase/intern-cert.pdf"
+                
+                # Verify that draw_wrapped_text was called with program type "Internship" (not "Course")
+                assert mock_draw.called
+                called_texts = [call[0][1] for call in mock_draw.call_args_list]
+                assert "Internship" in called_texts
+                assert "Course" not in called_texts
+
+
