@@ -80,9 +80,65 @@ async def sync_course_to_program(db: AsyncSession, course: Course) -> None:
     """Helper to synchronize Course model changes to the corresponding Program."""
     result = await db.execute(select(Program).where(Program.id == course.id))
     program = result.scalar_one_or_none()
+    
+    existing_template = "completion"
+    existing_cert_enabled = True
+    existing_verif_enabled = True
+    existing_attendance = False
+    existing_status = "active"
+    existing_category = None
+    existing_topics = None
+    existing_domain = None
+    existing_start_date = None
+    existing_end_date = None
+
     if not program:
+        # Check if another program has the same name or slug to avoid unique constraint violations
+        existing_result = await db.execute(
+            select(Program).where((Program.name == course.title) | (Program.slug == course.slug))
+        )
+        existing_program = existing_result.scalar_one_or_none()
+        if existing_program:
+            old_id = existing_program.id
+            existing_template = existing_program.certificate_template
+            existing_cert_enabled = existing_program.certificate_enabled
+            existing_verif_enabled = existing_program.verification_enabled
+            existing_attendance = existing_program.attendance_required
+            existing_status = existing_program.status
+            existing_category = existing_program.category
+            existing_topics = existing_program.topics
+            existing_domain = existing_program.domain
+            existing_start_date = existing_program.start_date
+            existing_end_date = existing_program.end_date
+
+            # Update foreign keys referencing old program to the course.id
+            from app.models.lead import Lead
+            from app.models.candidate_application import CandidateApplication
+            from sqlalchemy import update
+
+            await db.execute(
+                update(Lead).where(Lead.program_id == old_id).values(program_id=course.id)
+            )
+            await db.execute(
+                update(CandidateApplication).where(CandidateApplication.program_id == old_id).values(program_id=course.id)
+            )
+            
+            # Delete old program to release the unique name/slug constraints
+            await db.delete(existing_program)
+            await db.flush()
+
         program = Program(id=course.id)
         db.add(program)
+        program.certificate_template = existing_template
+        program.certificate_enabled = existing_cert_enabled
+        program.verification_enabled = existing_verif_enabled
+        program.attendance_required = existing_attendance
+        program.status = existing_status
+        program.category = existing_category
+        program.topics = existing_topics
+        program.domain = existing_domain
+        program.start_date = existing_start_date
+        program.end_date = existing_end_date
     
     program.name = course.title
     program.slug = course.slug
@@ -94,6 +150,6 @@ async def sync_course_to_program(db: AsyncSession, course: Course) -> None:
     program.is_deleted = course.is_deleted
     program.deleted_at = course.deleted_at
     program.deleted_by = course.deleted_by
-    program.certificate_template = "completion"
     
     # Do not call db.commit() here; the caller will commit the transaction.
+
