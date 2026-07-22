@@ -98,6 +98,10 @@ async def sync_course_to_program(db: AsyncSession, course: Course) -> None:
             select(Program).where((Program.name == course.title) | (Program.slug == course.slug))
         )
         existing_program = existing_result.scalar_one_or_none()
+        
+        lead_ids = []
+        candidate_ids = []
+        
         if existing_program:
             old_id = existing_program.id
             existing_template = existing_program.certificate_template
@@ -111,19 +115,22 @@ async def sync_course_to_program(db: AsyncSession, course: Course) -> None:
             existing_start_date = existing_program.start_date
             existing_end_date = existing_program.end_date
 
-            # Update foreign keys referencing old program to the course.id
+            # Fetch IDs of leads and candidates pointing to the old program ID
             from app.models.lead import Lead
             from app.models.candidate_application import CandidateApplication
-            from sqlalchemy import update
-
-            await db.execute(
-                update(Lead).where(Lead.program_id == old_id).values(program_id=course.id)
-            )
-            await db.execute(
-                update(CandidateApplication).where(CandidateApplication.program_id == old_id).values(program_id=course.id)
-            )
             
-            # Delete old program to release the unique name/slug constraints
+            lead_ids_res = await db.execute(
+                select(Lead.id).where(Lead.program_id == old_id)
+            )
+            lead_ids = list(lead_ids_res.scalars().all())
+
+            candidate_ids_res = await db.execute(
+                select(CandidateApplication.id).where(CandidateApplication.program_id == old_id)
+            )
+            candidate_ids = list(candidate_ids_res.scalars().all())
+            
+            # Delete old program to release the unique name/slug constraints.
+            # This sets leads.program_id and candidate_applications.program_id to NULL.
             await db.delete(existing_program)
             await db.flush()
 
@@ -139,7 +146,38 @@ async def sync_course_to_program(db: AsyncSession, course: Course) -> None:
         program.domain = existing_domain
         program.start_date = existing_start_date
         program.end_date = existing_end_date
+
+        # Populate new program fields before flush so that it is a fully valid record
+        program.name = course.title
+        program.slug = course.slug
+        program.program_type = "Course"
+        program.description = course.description
+        program.standard_fee = course.price
+        program.duration = course.duration
+        program.mode = course.mode.value if hasattr(course.mode, "value") else str(course.mode)
+        program.is_deleted = course.is_deleted
+        program.deleted_at = course.deleted_at
+        program.deleted_by = course.deleted_by
+
+        # Flush to insert the new Program with course.id into the database
+        await db.flush()
+
+        # Now that the new Program exists, we can update the associated leads and candidates
+        if existing_program:
+            from app.models.lead import Lead
+            from app.models.candidate_application import CandidateApplication
+            from sqlalchemy import update
+
+            if lead_ids:
+                await db.execute(
+                    update(Lead).where(Lead.id.in_(lead_ids)).values(program_id=course.id)
+                )
+            if candidate_ids:
+                await db.execute(
+                    update(CandidateApplication).where(CandidateApplication.id.in_(candidate_ids)).values(program_id=course.id)
+                )
     
+    # Update fields again in case the program already existed or has been updated
     program.name = course.title
     program.slug = course.slug
     program.program_type = "Course"
