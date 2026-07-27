@@ -114,3 +114,83 @@ class VerifyPaymentRequest(BaseModel):
     razorpay_signature: str
     payment_type: str
     amount: float
+
+
+# Structured Section Update Schemas
+class CandidatePersonalInfoUpdate(BaseModel):
+    full_name: Optional[str] = Field(None, max_length=255)
+    preferred_name: Optional[str] = Field(None, max_length=255)
+    gender: Optional[str] = Field(None, max_length=50)
+    date_of_birth: Optional[datetime] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = Field(None, max_length=20)
+    whatsapp_number: Optional[str] = Field(None, max_length=20)
+    aadhaar_number: Optional[str] = Field(None, max_length=20)
+    pan_number: Optional[str] = Field(None, max_length=50)
+    address: Optional[str] = None
+    city: Optional[str] = Field(None, max_length=100)
+    district: Optional[str] = Field(None, max_length=100)
+    state: Optional[str] = Field(None, max_length=100)
+    country: Optional[str] = Field(None, max_length=100)
+    pincode: Optional[str] = Field(None, max_length=20)
+    emergency_contact: Optional[str] = Field(None, max_length=20)
+    parent_guardian_name: Optional[str] = Field(None, max_length=255)
+    parent_guardian_occupation: Optional[str] = Field(None, max_length=255)
+    parent_guardian_phone: Optional[str] = Field(None, max_length=20)
+    parent_guardian_relationship: Optional[str] = Field(None, max_length=100)
+
+
+class CandidateAcademicInfoUpdate(BaseModel):
+    sslc_details: Optional[str] = None
+    plus_two_details: Optional[str] = None
+    diploma_details: Optional[str] = None
+    ug_details: Optional[str] = None
+    pg_details: Optional[str] = None
+    university_name: Optional[str] = Field(None, max_length=255)
+    college_name: Optional[str] = Field(None, max_length=255)
+    qualification: Optional[str] = Field(None, max_length=255)
+    academic_percentage: Optional[float] = Field(None, ge=0, le=100)
+    academic_cgpa: Optional[float] = Field(None, ge=0, le=10)
+    passing_year: Optional[str] = Field(None, max_length=50)
+    academic_status: Optional[str] = Field(None, max_length=50)
+
+
+class CandidateProfessionalInfoUpdate(BaseModel):
+    experience_years: Optional[str] = Field(None, max_length=50)
+    company_name: Optional[str] = Field(None, max_length=255)
+    skills: Optional[str] = None
+    cv_url: Optional[str] = Field(None, max_length=500)
+    linkedin_url: Optional[str] = Field(None, max_length=500)
+    portfolio_url: Optional[str] = Field(None, max_length=500)
+
+
+class CandidateProgramInfoUpdate(BaseModel):
+    program_type: Optional[str] = None
+    course_applied: Optional[str] = None
+    program_id: Optional[str] = None
+    batch_name: Optional[str] = Field(None, max_length=100)
+    trainer_name: Optional[str] = Field(None, max_length=255)
+    course_start_date: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    course_duration: Optional[str] = Field(None, max_length=100)
+    mode_of_learning: Optional[str] = Field(None, max_length=100)
+    training_location: Optional[str] = Field(None, max_length=255)
+    programme_domain: Optional[str] = Field(None, max_length=255)
+
+
+class CandidateFeeInfoUpdate(BaseModel):
+    standard_course_fee: Optional[float] = Field(None, ge=0)
+    scholarship_amount: Optional[float] = Field(None, ge=0)
+    special_discount: Optional[float] = Field(None, ge=0)
+    corporate_discount: Optional[float] = Field(None, ge=0)
+    promo_discount: Optional[float] = Field(None, ge=0)
+    gst_percentage: Optional[float] = Field(None, ge=0)
+    gst_amount: Optional[float] = Field(None, ge=0)
+    convenience_fee: Optional[float] = Field(None, ge=0)
+    admission_fee_amount: Optional[float] = Field(None, ge=0)
+    booking_amount: Optional[float] = Field(None, ge=0)
+    offer_remarks: Optional[str] = None
+    offer_expiry_date: Optional[datetime] = None
+    admission_fee_paid: Optional[bool] = None
+    auto_enroll_enabled: Optional[bool] = None
+

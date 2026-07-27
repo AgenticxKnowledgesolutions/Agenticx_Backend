@@ -6,7 +6,12 @@ from typing import Optional, List, Dict
 from datetime import datetime
 
 from app.core.database import get_db
-from app.schemas.candidate import CandidateCreate, CandidateStatusUpdate, CandidateNoteCreate, CandidateImportMapping, BulkDeleteCandidatesPayload, BulkRegenerateCertificatesPayload
+from app.schemas.candidate import (
+    CandidateCreate, CandidateStatusUpdate, CandidateNoteCreate, CandidateImportMapping,
+    BulkDeleteCandidatesPayload, BulkRegenerateCertificatesPayload,
+    CandidatePersonalInfoUpdate, CandidateAcademicInfoUpdate, CandidateProfessionalInfoUpdate,
+    CandidateProgramInfoUpdate, CandidateFeeInfoUpdate
+)
 from app.services.candidate_service import CandidateService
 from app.deps import require_admin
 from app.models.user import User
@@ -335,6 +340,67 @@ async def get_candidate(
 ):
     """Admin: get full application details by ID."""
     return await CandidateService.get_application_by_id(db, id)
+
+
+@router.put("/{id}/personal-info")
+async def update_personal_info(
+    id: str,
+    payload: CandidatePersonalInfoUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin: update candidate personal information."""
+    data = payload.model_dump(exclude_unset=True)
+    return await CandidateService.update_personal_info(db, id, data, user_email=current_user.email)
+
+
+@router.put("/{id}/academic-info")
+async def update_academic_info(
+    id: str,
+    payload: CandidateAcademicInfoUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin: update candidate academic information."""
+    data = payload.model_dump(exclude_unset=True)
+    return await CandidateService.update_academic_info(db, id, data, user_email=current_user.email)
+
+
+@router.put("/{id}/professional-info")
+async def update_professional_info(
+    id: str,
+    payload: CandidateProfessionalInfoUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin: update candidate professional information."""
+    data = payload.model_dump(exclude_unset=True)
+    return await CandidateService.update_professional_info(db, id, data, user_email=current_user.email)
+
+
+@router.put("/{id}/program-info")
+async def update_program_info(
+    id: str,
+    payload: CandidateProgramInfoUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin: update candidate program information."""
+    data = payload.model_dump(exclude_unset=True)
+    return await CandidateService.update_program_info(db, id, data, user_email=current_user.email)
+
+
+@router.put("/{id}/fee-info")
+async def update_fee_info(
+    id: str,
+    payload: CandidateFeeInfoUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin: update candidate fee & financial information with dynamic recalculation."""
+    data = payload.model_dump(exclude_unset=True)
+    return await CandidateService.update_fee_info(db, id, data, user_email=current_user.email)
+
 
 @router.put("/{id}/status")
 async def update_status(

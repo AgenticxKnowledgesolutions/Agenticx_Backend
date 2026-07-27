@@ -554,6 +554,188 @@ class CandidateService:
         return r_dict
 
     @classmethod
+    async def update_personal_info(
+        cls, db: AsyncSession, candidate_id: str, data: Dict[str, Any], user_email: Optional[str] = "Admin"
+    ) -> Dict[str, Any]:
+        stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id, CandidateApplication.is_deleted == False)
+        res = await db.execute(stmt)
+        candidate = res.scalar_one_or_none()
+        if not candidate:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
+
+        # Aadhaar handling
+        if "aadhaar_number" in data and data["aadhaar_number"] is not None:
+            plain_aadhaar = str(data["aadhaar_number"]).strip()
+            if plain_aadhaar:
+                candidate.aadhaar_number_encrypted = encrypt_aadhaar(plain_aadhaar)
+            else:
+                candidate.aadhaar_number_encrypted = None
+
+        updatable_fields = [
+            "full_name", "preferred_name", "gender", "date_of_birth", "email",
+            "phone", "whatsapp_number", "pan_number", "address", "city",
+            "district", "state", "country", "pincode", "emergency_contact",
+            "parent_guardian_name", "parent_guardian_occupation",
+            "parent_guardian_phone", "parent_guardian_relationship"
+        ]
+        updated_keys = []
+        for key in updatable_fields:
+            if key in data and data[key] is not None:
+                setattr(candidate, key, data[key])
+                updated_keys.append(key)
+
+        candidate.updated_at = datetime.utcnow()
+        await cls.add_timeline_event(
+            db, candidate.id, "Personal Info Updated",
+            f"Personal information updated by {user_email}. Fields: {', '.join(updated_keys) if updated_keys else 'Aadhaar'}.", user_email
+        )
+        await db.commit()
+        return await cls.get_application_by_id(db, candidate.id)
+
+    @classmethod
+    async def update_academic_info(
+        cls, db: AsyncSession, candidate_id: str, data: Dict[str, Any], user_email: Optional[str] = "Admin"
+    ) -> Dict[str, Any]:
+        stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id, CandidateApplication.is_deleted == False)
+        res = await db.execute(stmt)
+        candidate = res.scalar_one_or_none()
+        if not candidate:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
+
+        updatable_fields = [
+            "sslc_details", "plus_two_details", "diploma_details", "ug_details", "pg_details",
+            "university_name", "college_name", "qualification", "academic_percentage",
+            "academic_cgpa", "passing_year", "academic_status"
+        ]
+        updated_keys = []
+        for key in updatable_fields:
+            if key in data and data[key] is not None:
+                setattr(candidate, key, data[key])
+                updated_keys.append(key)
+
+        candidate.updated_at = datetime.utcnow()
+        await cls.add_timeline_event(
+            db, candidate.id, "Academic Info Updated",
+            f"Academic information updated by {user_email}. Fields: {', '.join(updated_keys)}.", user_email
+        )
+        await db.commit()
+        return await cls.get_application_by_id(db, candidate.id)
+
+    @classmethod
+    async def update_professional_info(
+        cls, db: AsyncSession, candidate_id: str, data: Dict[str, Any], user_email: Optional[str] = "Admin"
+    ) -> Dict[str, Any]:
+        stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id, CandidateApplication.is_deleted == False)
+        res = await db.execute(stmt)
+        candidate = res.scalar_one_or_none()
+        if not candidate:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
+
+        updatable_fields = [
+            "experience_years", "company_name", "skills", "cv_url", "linkedin_url", "portfolio_url"
+        ]
+        updated_keys = []
+        for key in updatable_fields:
+            if key in data and data[key] is not None:
+                setattr(candidate, key, data[key])
+                updated_keys.append(key)
+
+        candidate.updated_at = datetime.utcnow()
+        await cls.add_timeline_event(
+            db, candidate.id, "Professional Info Updated",
+            f"Professional details updated by {user_email}. Fields: {', '.join(updated_keys)}.", user_email
+        )
+        await db.commit()
+        return await cls.get_application_by_id(db, candidate.id)
+
+    @classmethod
+    async def update_program_info(
+        cls, db: AsyncSession, candidate_id: str, data: Dict[str, Any], user_email: Optional[str] = "Admin"
+    ) -> Dict[str, Any]:
+        stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id, CandidateApplication.is_deleted == False)
+        res = await db.execute(stmt)
+        candidate = res.scalar_one_or_none()
+        if not candidate:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
+
+        program_id = data.get("program_id")
+        if program_id and program_id != candidate.program_id:
+            from app.models.program import Program
+            prog_res = await db.execute(select(Program).where(Program.id == program_id))
+            program = prog_res.scalar_one_or_none()
+            if program:
+                candidate.program_id = program.id
+                candidate.course_applied = program.name
+                candidate.program_type = program.program_type
+                if program.duration:
+                    candidate.course_duration = program.duration
+                if program.mode:
+                    candidate.mode_of_learning = program.mode
+
+        updatable_fields = [
+            "program_type", "course_applied", "batch_name", "trainer_name",
+            "course_start_date", "completed_at", "course_duration",
+            "mode_of_learning", "training_location", "programme_domain"
+        ]
+        updated_keys = []
+        for key in updatable_fields:
+            if key in data and data[key] is not None:
+                setattr(candidate, key, data[key])
+                updated_keys.append(key)
+
+        candidate.updated_at = datetime.utcnow()
+        await cls.add_timeline_event(
+            db, candidate.id, "Program Info Updated",
+            f"Program details updated by {user_email}. Fields: {', '.join(updated_keys)}.", user_email
+        )
+        await db.commit()
+        return await cls.get_application_by_id(db, candidate.id)
+
+    @classmethod
+    async def update_fee_info(
+        cls, db: AsyncSession, candidate_id: str, data: Dict[str, Any], user_email: Optional[str] = "Admin"
+    ) -> Dict[str, Any]:
+        stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id, CandidateApplication.is_deleted == False)
+        res = await db.execute(stmt)
+        candidate = res.scalar_one_or_none()
+        if not candidate:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
+
+        updatable_fields = [
+            "standard_course_fee", "scholarship_amount", "special_discount",
+            "corporate_discount", "promo_discount", "gst_percentage", "gst_amount",
+            "convenience_fee", "admission_fee_amount", "booking_amount",
+            "offer_remarks", "offer_expiry_date", "admission_fee_paid", "auto_enroll_enabled"
+        ]
+        for key in updatable_fields:
+            if key in data and data[key] is not None:
+                setattr(candidate, key, data[key])
+
+        # Dynamic recalculation of total discounts, GST, and final payable amount
+        std_fee = candidate.standard_course_fee or 0.0
+        tot_discount = (
+            (candidate.scholarship_amount or 0.0) +
+            (candidate.special_discount or 0.0) +
+            (candidate.corporate_discount or 0.0) +
+            (candidate.promo_discount or 0.0)
+        )
+        taxable = max(0.0, std_fee - tot_discount)
+        if (candidate.gst_percentage or 0.0) > 0:
+            candidate.gst_amount = round(taxable * (candidate.gst_percentage / 100.0), 2)
+        gst = candidate.gst_amount or 0.0
+        conv = candidate.convenience_fee or 0.0
+
+        candidate.final_payable_amount = round(taxable + gst + conv, 2)
+        candidate.updated_at = datetime.utcnow()
+
+        await cls.add_timeline_event(
+            db, candidate.id, "Fee Details Updated",
+            f"Financial details updated by {user_email}. Final Payable Amount: ₹{candidate.final_payable_amount}.", user_email
+        )
+        await db.commit()
+        return await cls.get_application_by_id(db, candidate.id)
+
+    @classmethod
     async def soft_delete_application(
         cls, db: AsyncSession, candidate_id: str, user_email: Optional[str] = "Admin"
     ) -> bool:

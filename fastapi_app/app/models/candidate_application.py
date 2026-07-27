@@ -44,7 +44,40 @@ class CandidateApplication(Base):
     languages_known: Mapped[str | None] = mapped_column(Text, nullable=True)
     parent_guardian_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     parent_guardian_occupation: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    preferred_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    pan_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    district: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    pincode: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    parent_guardian_phone: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parent_guardian_relationship: Mapped[str | None] = mapped_column(String(100), nullable=True)
     
+    # Extended Academic Fields
+    sslc_details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    plus_two_details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    diploma_details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ug_details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pg_details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    university_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    academic_percentage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    academic_cgpa: Mapped[float | None] = mapped_column(Float, nullable=True)
+    passing_year: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    academic_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    # Extended Professional Fields
+    experience_years: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    company_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    skills: Mapped[str | None] = mapped_column(Text, nullable=True)
+    linkedin_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    portfolio_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Extended Program Fields
+    batch_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    trainer_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    training_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     # Secure encrypted Aadhaar stored as text
     aadhaar_number_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     
@@ -80,6 +113,9 @@ class CandidateApplication(Base):
     corporate_discount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     promo_discount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     booking_amount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    gst_percentage: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    gst_amount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    convenience_fee: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     final_payable_amount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     offer_remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
     offer_expiry_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
