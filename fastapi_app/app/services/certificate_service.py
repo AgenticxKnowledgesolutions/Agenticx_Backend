@@ -329,6 +329,18 @@ class CertificateService:
             ):
                 cert_template = "participation"
 
+        # Resolve In Association With (training_location or college_name)
+        assoc_with = (candidate.training_location or candidate.college_name or "").strip()
+        
+        # Resolve Topics Covered & Domain from candidate.programme_domain (which is edited as "Topics Covered" in Admin)
+        topics_covered = (candidate.programme_domain or "").strip()
+        if not topics_covered:
+            topics_covered = course_details.get("topics") or course_details.get("domain") or "Artificial Intelligence & Machine Learning"
+            
+        course_domain = (candidate.programme_domain or "").strip()
+        if not course_domain:
+            course_domain = course_details.get("domain") or "Artificial Intelligence & Machine Learning"
+
         # Map candidate details to template data format
         data = {
             "certificateId": candidate.application_number or candidate.certificate_id,
@@ -336,11 +348,12 @@ class CertificateService:
             "recipientName": candidate.full_name,
             "gender": candidate.gender or "other",
             "courseName": course_applied,
-            "courseTopics": course_details["topics"],
+            "courseTopics": topics_covered,
             "organizationName": "AgenticX Knowledge Solutions LLP",
+            "associationWith": assoc_with,
             "courseMode": candidate.mode_of_learning or "Online",
-            "courseDuration": candidate.course_duration or "4 Weeks or 90+ Hours",
-            "courseDomain": course_details["domain"],
+            "courseDuration": candidate.course_duration or "4 Weeks",
+            "courseDomain": course_domain,
             "startDate": candidate.course_start_date.strftime("%d/%m/%Y") if candidate.course_start_date else comp_date.strftime("%d/%m/%Y"),
             "endDate": comp_date.strftime("%d/%m/%Y"),
             "completionDate": completion_date_str,
@@ -427,32 +440,33 @@ class CertificateService:
 
         # ===================== Body paragraph =====================
         body_y = title_y - 16 * mm
+        assoc_str = f" in association with <b>{assoc_with}</b>" if assoc_with else ""
+
         if cert_template == "participation":
             start_date_str = candidate.course_start_date.strftime("%d %B %Y") if candidate.course_start_date else data["startDate"]
             end_date_str = comp_date.strftime("%d %B %Y")
+            prog_name_str = f"<b>{data['programType']}</b> on " if data['programType'] and data['programType'].lower() != "course" else ""
             body = (
                 f"This is to certify that <b>{data['recipientName']}</b> has successfully participated in the "
-                f"<b>{data['courseName']}</b> organized by <b>{data['organizationName']}</b> held from "
+                f"{prog_name_str}<b>{data['courseName']}</b> organized by <b>{data['organizationName']}</b>{assoc_str} held from "
                 f"<b>{start_date_str}</b> to <b>{end_date_str}</b>. We appreciate your active participation and "
                 f"wish you continued success in your academic and professional journey."
             )
         elif cert_template == "fdp":
-            domain_name = (candidate.programme_domain or "").strip()
-            if domain_name:
-                fdp_text = f"Faculty Development Programme on {domain_name}"
-            else:
-                fdp_text = "Faculty Development Programme"
+            fdp_topic = (candidate.programme_domain or candidate.course_applied or "Faculty Development Programme").strip()
+            fdp_text = f"Faculty Development Programme on {fdp_topic}" if not fdp_topic.lower().startswith("faculty development") else fdp_topic
             body = (
                 f"This is to certify that <b>{data['recipientName']}</b> has successfully completed the "
-                f"<b>{fdp_text}</b> on {data['completionDate']} at <b>{data['organizationName']}</b>. "
+                f"<b>{fdp_text}</b> organized by <b>{data['organizationName']}</b>{assoc_str} on <b>{data['completionDate']}</b>. "
                 f"{pronoun['subject']} actively participated throughout the "
                 f"program with full dedication and demonstrated a strong commitment to learning."
             )
         else:
+            prog_title = f"<b>{data['programType']}</b> on <b>{data['courseName']}</b>" if data['programType'] and data['programType'].lower() != "course" else f"<b>{data['courseName']}</b>"
             body = (
                 f"This is to certify that <b>{data['recipientName']}</b> has successfully completed the "
-                f"<b>{data['courseName']}</b>, covering {data['courseTopics']} at {data['organizationName']} "
-                f"on {data['completionDate']}. {pronoun['subject']} actively participated throughout the "
+                f"{prog_title}, covering {data['courseTopics']} at <b>{data['organizationName']}</b>{assoc_str} "
+                f"on <b>{data['completionDate']}</b>. {pronoun['subject']} actively participated throughout the "
                 f"program with full dedication and demonstrated a strong commitment to learning."
             )
         
@@ -473,28 +487,19 @@ class CertificateService:
 
         # ===================== Course/Program Details panel =====================
         panel_top = y - 6 * mm
-        if cert_template == "fdp":
-            detail_rows = [
-                ("Program", data["programType"]),
-                ("Organization", data["organizationName"]),
-                ("In Association With", candidate.college_name or "N/A"),
-                ("Mode", data["courseMode"]),
-                ("Duration & Hours", data["courseDuration"]),
-                ("Domain", candidate.programme_domain or "N/A"),
-                ("Start Date", data["startDate"]),
-                ("End Date", data["endDate"]),
-            ]
-        else:
-            detail_rows = [
-                ("Program", data["programType"]),
-                ("Organization", data["organizationName"]),
-                ("Mode", data["courseMode"]),
-                ("Duration & Hours", data["courseDuration"]),
-                ("Domain(s)", data["courseDomain"]),
-                ("Topics Covered", data["courseTopics"]),
-                ("Start Date", data["startDate"]),
-                ("End Date", data["endDate"]),
-            ]
+        detail_rows = [
+            ("Program", data["programType"]),
+            ("Organization", data["organizationName"]),
+        ]
+        if assoc_with:
+            detail_rows.append(("In Association With", assoc_with))
+        detail_rows.extend([
+            ("Mode", data["courseMode"]),
+            ("Duration & Hours", data["courseDuration"]),
+            ("Topics Covered", data["courseTopics"]),
+            ("Start Date", data["startDate"]),
+            ("End Date", data["endDate"]),
+        ])
 
         label_w = 38 * mm
         row_leading = 6 * mm
