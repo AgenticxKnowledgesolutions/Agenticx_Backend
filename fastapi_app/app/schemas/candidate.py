@@ -194,3 +194,17 @@ class CandidateFeeInfoUpdate(BaseModel):
     admission_fee_paid: Optional[bool] = None
     auto_enroll_enabled: Optional[bool] = None
 
+
+class CandidateCertificateInfoUpdate(BaseModel):
+    certificate_program_type: Optional[str] = Field(None, max_length=100)
+    certificate_course_name: Optional[str] = Field(None, max_length=255)
+    certificate_partner: Optional[str] = Field(None, max_length=255)
+    certificate_topics: Optional[str] = None
+    certificate_domain: Optional[str] = Field(None, max_length=255)
+    certificate_duration: Optional[str] = Field(None, max_length=100)
+    certificate_mode: Optional[str] = Field(None, max_length=100)
+    certificate_body_override: Optional[str] = None
+    certificate_title_override: Optional[str] = Field(None, max_length=255)
+    certificate_completion_date: Optional[datetime] = None
+    certificate_issue_date: Optional[datetime] = None
+

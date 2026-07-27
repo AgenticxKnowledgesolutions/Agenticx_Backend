@@ -10,7 +10,7 @@ from app.schemas.candidate import (
     CandidateCreate, CandidateStatusUpdate, CandidateNoteCreate, CandidateImportMapping,
     BulkDeleteCandidatesPayload, BulkRegenerateCertificatesPayload,
     CandidatePersonalInfoUpdate, CandidateAcademicInfoUpdate, CandidateProfessionalInfoUpdate,
-    CandidateProgramInfoUpdate, CandidateFeeInfoUpdate
+    CandidateProgramInfoUpdate, CandidateFeeInfoUpdate, CandidateCertificateInfoUpdate
 )
 from app.services.candidate_service import CandidateService
 from app.deps import require_admin
@@ -400,6 +400,18 @@ async def update_fee_info(
     """Admin: update candidate fee & financial information with dynamic recalculation."""
     data = payload.model_dump(exclude_unset=True)
     return await CandidateService.update_fee_info(db, id, data, user_email=current_user.email)
+
+
+@router.put("/{id}/certificate-info")
+async def update_certificate_info(
+    id: str,
+    payload: CandidateCertificateInfoUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin: update candidate-level certificate metadata overrides."""
+    data = payload.model_dump(exclude_unset=True)
+    return await CandidateService.update_certificate_info(db, id, data, user_email=current_user.email)
 
 
 @router.put("/{id}/status")

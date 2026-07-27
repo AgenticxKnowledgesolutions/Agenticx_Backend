@@ -262,6 +262,246 @@ def get_course_details(course_name: str) -> dict:
     }
 
 
+class CertificateMetadataResolver:
+    """Resolves certificate metadata using strict 5-tier priority hierarchy:
+    1. Candidate Overrides (candidate.certificate_*)
+    2. Program Certificate Metadata (program.certificate_*)
+    3. Existing Candidate Values (candidate.programme_domain, candidate.training_location, candidate.course_applied, etc.)
+    4. Legacy Fallback (get_course_details() / keyword matching)
+    5. System Default
+    """
+
+    @classmethod
+    def resolve_all(cls, candidate: CandidateApplication, program: Optional[Any] = None) -> Dict[str, Any]:
+        course_applied = candidate.course_applied or "Professional Certification Program"
+        course_details = get_course_details(course_applied)
+
+        # 1. Program Type
+        program_type = (
+            candidate.certificate_program_type or
+            candidate.program_type or
+            (program.certificate_default_program_type if program else None) or
+            (program.program_type if program else None) or
+            "Course"
+        )
+
+        # 2. Course Name
+        course_name = (
+            candidate.certificate_course_name or
+            candidate.course_applied or
+            (program.name if program else None) or
+            "Professional Certification Program"
+        )
+
+        # 3. Certificate Template
+        cert_template = (
+            (program.certificate_template if program else None) or
+            "completion"
+        )
+        prog_type_lower = program_type.lower()
+        course_lower = course_name.lower()
+        if (
+            prog_type_lower in ["fdp", "faculty development programme"] or
+            "fdp" in course_lower or
+            "faculty development" in course_lower
+        ):
+            cert_template = "fdp"
+            program_type = "Faculty Development Programme"
+        elif not candidate.program_id:
+            if (
+                "webinar" in course_lower or
+                "workshop" in course_lower or
+                prog_type_lower in ["workshop", "webinar"]
+            ):
+                cert_template = "participation"
+
+        # 4. Certificate Title
+        cert_title = (
+            candidate.certificate_title_override or
+            (program.certificate_title if program else None) or
+            cls._default_title_for_template(cert_template)
+        )
+
+        # 5. Certificate Subtitle
+        cert_subtitle = (
+            (program.certificate_subtitle if program else None) or ""
+        )
+
+        # 6. Partner ("In Association With")
+        partner = (
+            candidate.certificate_partner or
+            (program.certificate_partner if program else None) or
+            candidate.training_location or
+            candidate.college_name or
+            ""
+        ).strip()
+
+        # 7. Topics Covered
+        topics = (
+            candidate.certificate_topics or
+            (program.certificate_topics if program else None) or
+            candidate.programme_domain or
+            course_details.get("topics") or
+            "Professional Development, Advanced Concepts, and Practical Applications"
+        ).strip()
+
+        # 8. Domain
+        domain = (
+            candidate.certificate_domain or
+            (program.certificate_domain if program else None) or
+            candidate.programme_domain or
+            course_details.get("domain") or
+            "Technology & Professional Studies"
+        ).strip()
+
+        # 9. Mode & Duration
+        mode = (
+            candidate.certificate_mode or
+            candidate.mode_of_learning or
+            (program.certificate_default_mode if program else None) or
+            (program.mode if program else None) or
+            "Online"
+        )
+
+        duration = (
+            candidate.certificate_duration or
+            candidate.course_duration or
+            (program.certificate_duration if program else None) or
+            (program.duration if program else None) or
+            "4 Weeks"
+        )
+
+        # 10. Dates
+        comp_date = candidate.certificate_completion_date or candidate.completed_at or datetime.utcnow()
+        issue_date = candidate.certificate_issue_date or comp_date
+        
+        day_suffix = get_ordinal_suffix(comp_date.day)
+        completion_date_str = f"{comp_date.day}{day_suffix} {comp_date.strftime('%B %Y')}"
+        issue_date_str = issue_date.strftime("%d %B %Y")
+        start_date_str = candidate.course_start_date.strftime("%d/%m/%Y") if candidate.course_start_date else comp_date.strftime("%d/%m/%Y")
+
+        # 11. Signatory Info
+        signatory_name = (
+            (program.certificate_signatory_name if program else None) or
+            "Anju Muraleedharan"
+        )
+        signatory_title = (
+            (program.certificate_signatory_title if program else None) or
+            "Managing Partner"
+        )
+
+        # 12. Organization
+        organization_name = "AgenticX Knowledge Solutions LLP"
+
+        # 13. Pronouns
+        pronoun = resolve_pronoun(candidate.gender or "other")
+
+        # 14. Body Paragraph
+        body_template = candidate.certificate_body_override or (program.certificate_body_template if program else None)
+        if body_template:
+            body_text = cls.render_placeholders(body_template, {
+                "candidate_name": candidate.full_name,
+                "course_name": course_name,
+                "program_type": program_type,
+                "topics": topics,
+                "partner": partner,
+                "organization": organization_name,
+                "completion_date": completion_date_str,
+                "issue_date": issue_date_str,
+                "pronoun": pronoun["subject"],
+                "duration": duration,
+                "mode": mode,
+            })
+        else:
+            body_text = cls._default_body_text(
+                cert_template=cert_template,
+                recipient_name=candidate.full_name,
+                program_type=program_type,
+                course_name=course_name,
+                organization_name=organization_name,
+                partner=partner,
+                start_date_str=candidate.course_start_date.strftime("%d %B %Y") if candidate.course_start_date else comp_date.strftime("%d %B %Y"),
+                end_date_str=comp_date.strftime("%d %B %Y"),
+                completion_date_str=completion_date_str,
+                topics=topics,
+                pronoun=pronoun
+            )
+
+        return {
+            "certificateId": candidate.application_number or candidate.certificate_id,
+            "issueDate": issue_date_str,
+            "recipientName": candidate.full_name,
+            "gender": candidate.gender or "other",
+            "courseName": course_name,
+            "courseTopics": topics,
+            "organizationName": organization_name,
+            "associationWith": partner,
+            "courseMode": mode,
+            "courseDuration": duration,
+            "courseDomain": domain,
+            "startDate": start_date_str,
+            "endDate": comp_date.strftime("%d/%m/%Y"),
+            "completionDate": completion_date_str,
+            "performance": candidate.performance,
+            "programType": program_type,
+            "certTemplate": cert_template,
+            "certTitle": cert_title,
+            "certSubtitle": cert_subtitle,
+            "bodyText": body_text,
+            "signatoryName": signatory_name,
+            "signatoryTitle": signatory_title,
+            "footerText": (program.certificate_footer if program else None) or "AgenticX Knowledge Solutions",
+            "qrEnabled": program.certificate_qr_enabled if program else True,
+            "verificationEnabled": program.certificate_verification_enabled if program else True,
+        }
+
+    @staticmethod
+    def render_placeholders(template_str: str, data_dict: Dict[str, Any]) -> str:
+        res = template_str
+        for k, v in data_dict.items():
+            res = res.replace(f"{{{k}}}", str(v or ""))
+        return res
+
+    @staticmethod
+    def _default_title_for_template(cert_template: str) -> str:
+        if cert_template == "participation":
+            return "CERTIFICATE OF PARTICIPATION"
+        elif cert_template == "achievement":
+            return "CERTIFICATE OF ACHIEVEMENT"
+        return "CERTIFICATE OF COMPLETION"
+
+    @staticmethod
+    def _default_body_text(cert_template: str, recipient_name: str, program_type: str, course_name: str,
+                           organization_name: str, partner: str, start_date_str: str, end_date_str: str,
+                           completion_date_str: str, topics: str, pronoun: dict) -> str:
+        assoc_str = f" in association with <b>{partner}</b>" if partner else ""
+        if cert_template == "participation":
+            prog_name_str = f"<b>{program_type}</b> on " if program_type and program_type.lower() != "course" else ""
+            return (
+                f"This is to certify that <b>{recipient_name}</b> has successfully participated in the "
+                f"{prog_name_str}<b>{course_name}</b> organized by <b>{organization_name}</b>{assoc_str} held from "
+                f"<b>{start_date_str}</b> to <b>{end_date_str}</b>. We appreciate your active participation and "
+                f"wish you continued success in your academic and professional journey."
+            )
+        elif cert_template == "fdp":
+            fdp_topic = (topics or course_name or "Faculty Development Programme").strip()
+            fdp_text = f"Faculty Development Programme on {fdp_topic}" if not fdp_topic.lower().startswith("faculty development") else fdp_topic
+            return (
+                f"This is to certify that <b>{recipient_name}</b> has successfully completed the "
+                f"<b>{fdp_text}</b> organized by <b>{organization_name}</b>{assoc_str} on <b>{completion_date_str}</b>. "
+                f"{pronoun['subject']} actively participated throughout the "
+                f"program with full dedication and demonstrated a strong commitment to learning."
+            )
+        else:
+            prog_title = f"<b>{program_type}</b> on <b>{course_name}</b>" if program_type and program_type.lower() != "course" else f"<b>{course_name}</b>"
+            return (
+                f"This is to certify that <b>{recipient_name}</b> has successfully completed the "
+                f"{prog_title}, covering {topics} at <b>{organization_name}</b>{assoc_str} "
+                f"on <b>{completion_date_str}</b>. {pronoun['subject']} actively participated throughout the "
+                f"program with full dedication and demonstrated a strong commitment to learning."
+            )
+
+
 class CertificateService:
     @staticmethod
     async def generate_and_save_certificate(db: AsyncSession, candidate: CandidateApplication) -> CandidateApplication:
@@ -273,11 +513,17 @@ class CertificateService:
         # Determine completion date
         comp_date = candidate.completed_at or datetime.utcnow()
         candidate.completed_at = comp_date
-        
-        # Format completion date: e.g. "19th June 2026"
-        day_suffix = get_ordinal_suffix(comp_date.day)
-        completion_date_str = f"{comp_date.day}{day_suffix} {comp_date.strftime('%B %Y')}"
-        issue_date_str = comp_date.strftime("%d %B %Y")
+
+        # Fetch linked program model if present
+        from sqlalchemy import select
+        from app.models.program import Program
+        db_program = None
+        if candidate.program_id:
+            res_p = await db.execute(select(Program).where(Program.id == candidate.program_id))
+            db_program = res_p.scalar_one_or_none()
+
+        # Resolve all certificate metadata via CertificateMetadataResolver
+        data = CertificateMetadataResolver.resolve_all(candidate, db_program)
 
         # Generate signed JWT token (No expiry!)
         token = create_certificate_token(candidate.certificate_id)
@@ -285,85 +531,8 @@ class CertificateService:
         # Generate verification URL
         verification_url = f"{settings.CERTIFICATE_FRONTEND_URL.rstrip('/')}/verify?token={token}"
 
-        # Fetch course details dynamically
-        course_applied = candidate.course_applied or "Professional Certification Program"
-        course_details = get_course_details(course_applied)
-
-        # Resolve Program and template
-        from sqlalchemy import select
-        from app.models.program import Program
-        
-        # Use candidate.program_type as the primary source of truth, falling back to program.program_type if not set
-        db_program_type = candidate.program_type
-        db_program = None
-        if candidate.program_id:
-            result_p = await db.execute(select(Program).where(Program.id == candidate.program_id))
-            db_program = result_p.scalar_one_or_none()
-            
-        program_type = db_program_type
-        if not program_type and db_program:
-            program_type = db_program.program_type
-        if not program_type:
-            program_type = "Course"
-            
-        cert_template = "completion"
-        if db_program and db_program.certificate_template:
-            cert_template = db_program.certificate_template
-            
-        prog_type_lower = (program_type or "").lower()
-        course_lower = course_applied.lower()
-        
-        if (
-            prog_type_lower in ["fdp", "faculty development programme"] or
-            "fdp" in course_lower or
-            "faculty development" in course_lower
-        ):
-            cert_template = "fdp"
-            program_type = "Faculty Development Programme"
-        elif not candidate.program_id:
-            # Fallback for existing records based on program type or name
-            if (
-                "webinar" in course_lower or
-                "workshop" in course_lower or
-                prog_type_lower in ["workshop", "webinar"]
-            ):
-                cert_template = "participation"
-
-        # Resolve In Association With (training_location or college_name)
-        assoc_with = (candidate.training_location or candidate.college_name or "").strip()
-        
-        # Resolve Topics Covered & Domain from candidate.programme_domain (which is edited as "Topics Covered" in Admin)
-        topics_covered = (candidate.programme_domain or "").strip()
-        if not topics_covered:
-            topics_covered = course_details.get("topics") or course_details.get("domain") or "Artificial Intelligence & Machine Learning"
-            
-        course_domain = (candidate.programme_domain or "").strip()
-        if not course_domain:
-            course_domain = course_details.get("domain") or "Artificial Intelligence & Machine Learning"
-
-        # Map candidate details to template data format
-        data = {
-            "certificateId": candidate.application_number or candidate.certificate_id,
-            "issueDate": issue_date_str,
-            "recipientName": candidate.full_name,
-            "gender": candidate.gender or "other",
-            "courseName": course_applied,
-            "courseTopics": topics_covered,
-            "organizationName": "AgenticX Knowledge Solutions LLP",
-            "associationWith": assoc_with,
-            "courseMode": candidate.mode_of_learning or "Online",
-            "courseDuration": candidate.course_duration or "4 Weeks",
-            "courseDomain": course_domain,
-            "startDate": candidate.course_start_date.strftime("%d/%m/%Y") if candidate.course_start_date else comp_date.strftime("%d/%m/%Y"),
-            "endDate": comp_date.strftime("%d/%m/%Y"),
-            "completionDate": completion_date_str,
-            "performance": candidate.performance,
-            "programType": program_type,
-        }
-
         # Draw PDF using ReportLab in-memory
         pdf_buffer = io.BytesIO()
-        pronoun = resolve_pronoun(data.get("gender"))
 
         c = canvas.Canvas(pdf_buffer, pagesize=A4)
         width, height = A4
@@ -393,7 +562,6 @@ class CertificateService:
                 preserveAspectRatio=True,
             )
         except Exception:
-            # graceful fallback if logo file is unavailable
             c.setFillColor(NAVY)
             c.roundRect(width / 2 - logo_size / 2, top - logo_size, logo_size, logo_size, 3 * mm, fill=1, stroke=0)
             c.setFillColor(HexColor("#FFFFFF"))
@@ -426,11 +594,7 @@ class CertificateService:
         title_y = meta_y - 14 * mm
         c.setFillColor(NAVY)
         c.setFont("Helvetica-Bold", 19)
-        title = "CERTIFICATE OF COMPLETION"
-        if cert_template == "participation":
-            title = "CERTIFICATE OF PARTICIPATION"
-        elif cert_template == "achievement":
-            title = "CERTIFICATE OF ACHIEVEMENT"
+        title = data["certTitle"]
         c.drawCentredString(width / 2, title_y, title)
 
         c.setFillColor(TEAL)
@@ -440,39 +604,11 @@ class CertificateService:
 
         # ===================== Body paragraph =====================
         body_y = title_y - 16 * mm
-        assoc_str = f" in association with <b>{assoc_with}</b>" if assoc_with else ""
+        body = data["bodyText"]
 
-        if cert_template == "participation":
-            start_date_str = candidate.course_start_date.strftime("%d %B %Y") if candidate.course_start_date else data["startDate"]
-            end_date_str = comp_date.strftime("%d %B %Y")
-            prog_name_str = f"<b>{data['programType']}</b> on " if data['programType'] and data['programType'].lower() != "course" else ""
-            body = (
-                f"This is to certify that <b>{data['recipientName']}</b> has successfully participated in the "
-                f"{prog_name_str}<b>{data['courseName']}</b> organized by <b>{data['organizationName']}</b>{assoc_str} held from "
-                f"<b>{start_date_str}</b> to <b>{end_date_str}</b>. We appreciate your active participation and "
-                f"wish you continued success in your academic and professional journey."
-            )
-        elif cert_template == "fdp":
-            fdp_topic = (candidate.programme_domain or candidate.course_applied or "Faculty Development Programme").strip()
-            fdp_text = f"Faculty Development Programme on {fdp_topic}" if not fdp_topic.lower().startswith("faculty development") else fdp_topic
-            body = (
-                f"This is to certify that <b>{data['recipientName']}</b> has successfully completed the "
-                f"<b>{fdp_text}</b> organized by <b>{data['organizationName']}</b>{assoc_str} on <b>{data['completionDate']}</b>. "
-                f"{pronoun['subject']} actively participated throughout the "
-                f"program with full dedication and demonstrated a strong commitment to learning."
-            )
-        else:
-            prog_title = f"<b>{data['programType']}</b> on <b>{data['courseName']}</b>" if data['programType'] and data['programType'].lower() != "course" else f"<b>{data['courseName']}</b>"
-            body = (
-                f"This is to certify that <b>{data['recipientName']}</b> has successfully completed the "
-                f"{prog_title}, covering {data['courseTopics']} at <b>{data['organizationName']}</b>{assoc_str} "
-                f"on <b>{data['completionDate']}</b>. {pronoun['subject']} actively participated throughout the "
-                f"program with full dedication and demonstrated a strong commitment to learning."
-            )
-        
         from reportlab.platypus import Paragraph
         from reportlab.lib.styles import ParagraphStyle
-        
+
         body_style = ParagraphStyle(
             'CertBody',
             fontName='Helvetica',
@@ -491,8 +627,8 @@ class CertificateService:
             ("Program", data["programType"]),
             ("Organization", data["organizationName"]),
         ]
-        if assoc_with:
-            detail_rows.append(("In Association With", assoc_with))
+        if data.get("associationWith"):
+            detail_rows.append(("In Association With", data["associationWith"]))
         detail_rows.extend([
             ("Mode", data["courseMode"]),
             ("Duration & Hours", data["courseDuration"]),
@@ -555,7 +691,7 @@ class CertificateService:
         y = panel_top - panel_height - 10 * mm
 
         # ===================== Performance remark =====================
-        if cert_template not in ("participation", "fdp") and data.get("performance"):
+        if data.get("certTemplate") not in ("participation", "fdp") and data.get("performance"):
             c.setFont("Helvetica", 11)
             c.setFillColor(DARK_TEXT)
             perf_line = "Performance during the period was "
@@ -620,10 +756,10 @@ class CertificateService:
 
         c.setFont("Helvetica-Bold", 11)
         c.setFillColor(NAVY)
-        c.drawString(sig_x, 39 * mm, "Anju Muraleedharan")
+        c.drawString(sig_x, 39 * mm, data.get("signatoryName", "Anju Muraleedharan"))
         c.setFont("Helvetica", 9.5)
         c.setFillColor(GREY_TEXT)
-        c.drawString(sig_x, 34.5 * mm, "Managing Partner")
+        c.drawString(sig_x, 34.5 * mm, data.get("signatoryTitle", "Managing Partner"))
 
         # ===================== Footer =====================
         c.setStrokeColor(TEAL)
@@ -631,7 +767,7 @@ class CertificateService:
         c.line(margin, 18 * mm, width - margin, 18 * mm)
         c.setFont("Helvetica-Oblique", 8.5)
         c.setFillColor(GREY_TEXT)
-        c.drawString(margin, 13 * mm, "AgenticX Knowledge Solutions")
+        c.drawString(margin, 13 * mm, data.get("footerText", "AgenticX Knowledge Solutions"))
         c.drawRightString(width - margin, 13 * mm, "Page 1")
 
         c.setFillColor(NAVY)

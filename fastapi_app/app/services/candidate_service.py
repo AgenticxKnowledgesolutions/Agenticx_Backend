@@ -518,7 +518,8 @@ class CandidateService:
         stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id).options(
             selectinload(CandidateApplication.notes),
             selectinload(CandidateApplication.timeline_events),
-            selectinload(CandidateApplication.payments)
+            selectinload(CandidateApplication.payments),
+            selectinload(CandidateApplication.program)
         )
         res = await db.execute(stmt)
         candidate = res.scalar_one_or_none()
@@ -731,6 +732,34 @@ class CandidateService:
         await cls.add_timeline_event(
             db, candidate.id, "Fee Details Updated",
             f"Financial details updated by {user_email}. Final Payable Amount: ₹{candidate.final_payable_amount}.", user_email
+        )
+        await db.commit()
+        return await cls.get_application_by_id(db, candidate.id)
+
+    @classmethod
+    async def update_certificate_info(
+        cls, db: AsyncSession, candidate_id: str, data: Dict[str, Any], user_email: Optional[str] = "Admin"
+    ) -> Dict[str, Any]:
+        stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id, CandidateApplication.is_deleted == False)
+        res = await db.execute(stmt)
+        candidate = res.scalar_one_or_none()
+        if not candidate:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
+
+        updatable_fields = [
+            "certificate_program_type", "certificate_course_name", "certificate_partner",
+            "certificate_topics", "certificate_domain", "certificate_duration",
+            "certificate_mode", "certificate_body_override", "certificate_title_override",
+            "certificate_completion_date", "certificate_issue_date"
+        ]
+        for key in updatable_fields:
+            if key in data and data[key] is not None:
+                setattr(candidate, key, data[key])
+
+        candidate.updated_at = datetime.utcnow()
+        await cls.add_timeline_event(
+            db, candidate.id, "Certificate Metadata Overrides Updated",
+            f"Candidate-level certificate metadata overrides updated by {user_email}.", user_email
         )
         await db.commit()
         return await cls.get_application_by_id(db, candidate.id)

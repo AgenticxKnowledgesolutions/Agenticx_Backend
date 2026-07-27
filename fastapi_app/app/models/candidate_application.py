@@ -106,6 +106,19 @@ class CandidateApplication(Base):
     program_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     programme_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Extended Candidate-Level Certificate Overrides V2
+    certificate_program_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    certificate_course_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    certificate_partner: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    certificate_topics: Mapped[str | None] = mapped_column(Text, nullable=True)
+    certificate_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    certificate_duration: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    certificate_mode: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    certificate_body_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    certificate_title_override: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    certificate_completion_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    certificate_issue_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     # Offer Management & Financial Fields
     standard_course_fee: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     scholarship_amount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)

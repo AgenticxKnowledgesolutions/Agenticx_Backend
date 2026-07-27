@@ -22,6 +22,24 @@ class ProgramBase(BaseModel):
     end_date: Optional[datetime] = None
     topics: Optional[str] = None
     domain: Optional[str] = None
+    # Certificate V2 Metadata Section
+    certificate_title: Optional[str] = None
+    certificate_subtitle: Optional[str] = None
+    certificate_body_template: Optional[str] = None
+    certificate_domain: Optional[str] = None
+    certificate_topics: Optional[str] = None
+    certificate_partner: Optional[str] = None
+    certificate_duration: Optional[str] = None
+    certificate_default_mode: Optional[str] = None
+    certificate_default_program_type: Optional[str] = None
+    certificate_footer: Optional[str] = None
+    certificate_signatory_name: Optional[str] = None
+    certificate_signatory_title: Optional[str] = None
+    certificate_signature_image: Optional[str] = None
+    certificate_logo: Optional[str] = None
+    certificate_background: Optional[str] = None
+    certificate_qr_enabled: bool = True
+    certificate_verification_enabled: bool = True
 
 
 class ProgramCreate(ProgramBase):
@@ -46,6 +64,23 @@ class ProgramUpdate(BaseModel):
     end_date: Optional[datetime] = None
     topics: Optional[str] = None
     domain: Optional[str] = None
+    certificate_title: Optional[str] = None
+    certificate_subtitle: Optional[str] = None
+    certificate_body_template: Optional[str] = None
+    certificate_domain: Optional[str] = None
+    certificate_topics: Optional[str] = None
+    certificate_partner: Optional[str] = None
+    certificate_duration: Optional[str] = None
+    certificate_default_mode: Optional[str] = None
+    certificate_default_program_type: Optional[str] = None
+    certificate_footer: Optional[str] = None
+    certificate_signatory_name: Optional[str] = None
+    certificate_signatory_title: Optional[str] = None
+    certificate_signature_image: Optional[str] = None
+    certificate_logo: Optional[str] = None
+    certificate_background: Optional[str] = None
+    certificate_qr_enabled: Optional[bool] = None
+    certificate_verification_enabled: Optional[bool] = None
 
 
 class ProgramResponse(ProgramBase):
