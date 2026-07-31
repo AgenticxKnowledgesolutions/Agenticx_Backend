@@ -514,6 +514,58 @@ class CandidateService:
         return {"total": total, "records": formatted_records}
 
     @classmethod
+    def calculate_financials(
+        cls,
+        candidate: Any,
+        current_payment: Optional[Any] = None
+    ) -> Dict[str, Any]:
+        """
+        Authoritative centralized financial calculation helper.
+
+        Business Rules:
+        1. final_payable_amount represents the total Course Fee.
+        2. admission_fee_amount is mandatory and independent of Course Fee.
+        3. Admission Fee NEVER reduces Course Fee, Final Payable Amount, or Remaining Course Balance.
+        4. course_paid is the sum of all Paid payments where payment_type != 'Admission Fee'.
+        5. admission_fee_paid_amount is the sum of all Paid payments where payment_type == 'Admission Fee'.
+        6. remaining_course_balance = max(0.0, final_payable_amount - course_paid).
+        7. total_collected = admission_fee_paid_amount + course_paid.
+        """
+        payments = list(candidate.payments) if hasattr(candidate, "payments") and candidate.payments else []
+
+        if current_payment and current_payment.status == "Paid":
+            if not any(p.id == current_payment.id for p in payments):
+                payments.append(current_payment)
+
+        admission_fee_paid_amount = sum(
+            float(p.amount) for p in payments
+            if p.status == "Paid" and p.payment_type == "Admission Fee"
+        )
+
+        course_paid_amount = sum(
+            float(p.amount) for p in payments
+            if p.status == "Paid" and p.payment_type != "Admission Fee"
+        )
+
+        final_payable = float(getattr(candidate, "final_payable_amount", 0.0) or 0.0)
+        admission_fee_req = float(getattr(candidate, "admission_fee_amount", 0.0) or 0.0)
+
+        is_admission_paid = bool(getattr(candidate, "admission_fee_paid", False)) or (admission_fee_paid_amount > 0)
+
+        remaining_course_balance = max(0.0, final_payable - course_paid_amount)
+        total_collected = admission_fee_paid_amount + course_paid_amount
+
+        return {
+            "final_payable_amount": round(final_payable, 2),
+            "admission_fee_amount": round(admission_fee_req, 2),
+            "admission_fee_paid": is_admission_paid,
+            "admission_fee_paid_amount": round(admission_fee_paid_amount, 2),
+            "course_paid": round(course_paid_amount, 2),
+            "remaining_course_balance": round(remaining_course_balance, 2),
+            "total_collected": round(total_collected, 2)
+        }
+
+    @classmethod
     async def get_application_by_id(cls, db: AsyncSession, candidate_id: str) -> Dict[str, Any]:
         stmt = select(CandidateApplication).where(CandidateApplication.id == candidate_id).options(
             selectinload(CandidateApplication.notes),
@@ -530,7 +582,14 @@ class CandidateService:
         decrypted = decrypt_aadhaar(candidate.aadhaar_number_encrypted)
         r_dict["aadhaar_number_decrypted"] = decrypted
         r_dict["aadhaar_number_masked"] = mask_aadhaar(decrypted)
-        
+
+        # Attach centralized financials
+        financials = cls.calculate_financials(candidate)
+        r_dict["financials"] = financials
+        r_dict["course_paid"] = financials["course_paid"]
+        r_dict["remaining_balance"] = financials["remaining_course_balance"]
+        r_dict["total_collected"] = financials["total_collected"]
+
         # Serialize notes, timeline events, and payments
         r_dict["notes"] = [
             {"id": n.id, "content": n.content, "created_by": n.created_by, "created_at": n.created_at} for n in candidate.notes
@@ -1685,7 +1744,7 @@ class CandidateService:
             
             # Details Section Box
             box_top = title_y - 12 * mm
-            box_h = 75 * mm
+            box_h = 88 * mm
             c.setStrokeColor(HAIRLINE)
             c.setFillColor(HexColor("#F9FAFB"))
             c.roundRect(margin, box_top - box_h, content_w, box_h, 3 * mm, fill=1, stroke=1)
@@ -1756,26 +1815,23 @@ class CandidateService:
                 
             c.drawString(col2_x, y - 24 * mm - y_offset, f"Status: {payment.status}")
             
-            # Financial Overview
+            # Financial Overview (Centralized source of truth)
+            financials = cls.calculate_financials(candidate, current_payment=payment)
+
             c.setFillColor(DARK_TEXT)
             c.setFont("Helvetica-Bold", 11)
-            c.drawString(col2_x, y - 36 * mm - y_offset, "Financial Overview")
-            c.setFont("Helvetica", 10)
-            c.drawString(col2_x, y - 42 * mm - y_offset, f"Final Payable Amount: INR {candidate.final_payable_amount:.2f}")
+            c.drawString(col2_x, y - 32 * mm - y_offset, "Financial Overview")
+            c.setFont("Helvetica", 9)
+            c.drawString(col2_x, y - 37 * mm - y_offset, f"Course Fee: INR {financials['final_payable_amount']:.2f}")
+            adm_status_label = "Paid" if financials["admission_fee_paid"] else "Pending"
+            c.drawString(col2_x, y - 42 * mm - y_offset, f"Admission Fee: INR {financials['admission_fee_amount']:.2f} ({adm_status_label})")
+            c.drawString(col2_x, y - 47 * mm - y_offset, f"Course Fee Paid: INR {financials['course_paid']:.2f}")
+            c.drawString(col2_x, y - 52 * mm - y_offset, f"Remaining Course Fee: INR {financials['remaining_course_balance']:.2f}")
+            c.drawString(col2_x, y - 57 * mm - y_offset, f"Total Collected: INR {financials['total_collected']:.2f}")
             
-            # Calculate financials
-            total_paid = sum(p.amount for p in candidate.payments if p.status == "Paid")
-            if payment.status == "Paid" and payment.id not in [p.id for p in candidate.payments]:
-                total_paid += payment.amount
-                
-            remaining_bal = max(0.0, candidate.final_payable_amount - total_paid)
-            
-            c.drawString(col2_x, y - 48 * mm - y_offset, f"Total Paid to Date: INR {total_paid:.2f}")
-            c.drawString(col2_x, y - 54 * mm - y_offset, f"Remaining Balance: INR {remaining_bal:.2f}")
-            
-            c.setFont("Helvetica-Bold", 12)
+            c.setFont("Helvetica-Bold", 11)
             c.setFillColor(HexColor("#10B981"))
-            c.drawString(col2_x, y - 64 * mm - y_offset, f"Amount Paid: INR {payment.amount:.2f}")
+            c.drawString(col2_x, y - 66 * mm - y_offset, f"Amount Paid (This Receipt): INR {payment.amount:.2f}")
             
             # Footer
             sig_y = box_top - box_h - 25 * mm

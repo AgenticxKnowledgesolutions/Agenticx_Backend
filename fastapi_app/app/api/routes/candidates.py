@@ -994,21 +994,19 @@ async def candidate_portal_create_payment_order(
         if candidate.offer_expiry_date < now:
             raise HTTPException(status_code=400, detail="The offer for this candidate has expired.")
             
-    # 4. Check if standard_course_fee > 0 (or final_payable_amount > 0)
-    if data.payment_type != "Admission Fee" and candidate.final_payable_amount <= 0:
-        raise HTTPException(status_code=400, detail="No payable amount set for this candidate.")
-        
-    # 5. Check remaining balance
+    # 4. Check financials via centralized source of truth
+    financials = CandidateService.calculate_financials(candidate)
+    
     if data.payment_type == "Admission Fee":
-        if candidate.admission_fee_paid:
+        if financials["admission_fee_paid"]:
             raise HTTPException(status_code=400, detail="Admission fee has already been paid.")
-        remaining = candidate.admission_fee_amount
+        remaining = financials["admission_fee_amount"] - financials["admission_fee_paid_amount"]
+        if remaining <= 0:
+            raise HTTPException(status_code=400, detail="Admission fee has already been fully paid.")
     else:
-        course_paid = sum(
-            p.amount for p in candidate.payments 
-            if p.status == "Paid" and p.payment_type != "Admission Fee"
-        )
-        remaining = max(0.0, candidate.final_payable_amount - course_paid)
+        if financials["final_payable_amount"] <= 0:
+            raise HTTPException(status_code=400, detail="No payable amount set for this candidate.")
+        remaining = financials["remaining_course_balance"]
         
     if data.amount <= 0:
         raise HTTPException(status_code=400, detail="Payment amount must be greater than 0.")

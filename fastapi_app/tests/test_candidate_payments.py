@@ -447,3 +447,23 @@ def test_status_reconciliation_flow(client):
         assert payment.status == "Paid"
         assert payment.transaction_id == "pay_captured_123"
         mock_receipt.assert_called_once()
+
+def test_admission_fee_isolated_financial_calculation():
+    from app.services.candidate_service import CandidateService
+    candidate = MockCandidate()
+    candidate.final_payable_amount = 38999.0
+    candidate.admission_fee_amount = 250.0
+
+    p_adm = CandidatePayment(id="p1", amount=250.0, payment_type="Admission Fee", status="Paid")
+    p_course = CandidatePayment(id="p2", amount=5000.0, payment_type="Installment", status="Paid")
+    candidate.payments = [p_adm, p_course]
+
+    financials = CandidateService.calculate_financials(candidate)
+
+    assert financials["final_payable_amount"] == 38999.0
+    assert financials["admission_fee_amount"] == 250.0
+    assert financials["admission_fee_paid"] is True
+    assert financials["course_paid"] == 5000.0
+    # Admission Fee (250) must NOT reduce the Course Fee (38999)
+    assert financials["remaining_course_balance"] == 33999.0
+    assert financials["total_collected"] == 5250.0
