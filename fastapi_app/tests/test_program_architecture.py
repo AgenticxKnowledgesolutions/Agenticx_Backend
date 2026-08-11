@@ -16,7 +16,7 @@ from app.models.course import Course
 from app.models.lead import Lead
 from app.models.candidate_application import CandidateApplication
 from app.services.program_service import create_program, update_program, sync_course_to_program
-from app.services.certificate_service import CertificateService, get_course_details
+from app.services.certificate_service import CertificateService, get_course_details, CertificateMetadataResolver
 from app.schemas.program import ProgramCreate, ProgramUpdate
 from app.schemas.lead import LeadCreate
 from app.schemas.candidate import CandidateCreate, CandidateStatusUpdate, CandidateOfferUpdate
@@ -321,6 +321,56 @@ async def test_fdp_certificate_generation():
             # Generate and verify save
             updated_candidate = await CertificateService.generate_and_save_certificate(mock_db, candidate)
             assert updated_candidate.certificate_url == "https://supabase/fdp-cert.pdf"
+
+
+@pytest.mark.asyncio
+async def test_certificate_appreciation_template():
+    mock_db = AsyncMock()
+    
+    candidate = CandidateApplication(
+        id="cand-faculty-mentor",
+        application_number="CAF-APP-001",
+        full_name="Dr. Sarah Connor",
+        email="sarah.connor@agenticx.co.in",
+        course_applied="5-Day Faculty Development Programme (FDP) on Artificial Intelligence and Machine Learning",
+        program_type="FDP",
+        program_id="prog-fdp-987",
+        course_start_date=datetime(2026, 8, 1),
+        completed_at=datetime(2026, 8, 5),
+        gender="female",
+        performance="Outstanding"
+    )
+    
+    mock_prog = Program(
+        id="prog-fdp-987",
+        name="5-Day Faculty Development Programme (FDP) on Artificial Intelligence and Machine Learning",
+        program_type="FDP",
+        certificate_template="appreciation"
+    )
+    
+    mock_res = MagicMock()
+    mock_res.scalar_one_or_none.return_value = mock_prog
+    mock_db.execute.return_value = mock_res
+    
+    # Mock supabase upload
+    with patch("app.services.certificate_service.CertificateUploadService.upload_certificate", new_callable=AsyncMock) as mock_upload:
+        mock_upload.return_value = "https://supabase/appreciation-cert.pdf"
+        
+        # Mock create_certificate_token
+        with patch("app.services.certificate_service.create_certificate_token") as mock_token:
+            mock_token.return_value = "signed-appreciation-token"
+            
+            # Generate and verify save
+            updated_candidate = await CertificateService.generate_and_save_certificate(mock_db, candidate)
+            assert updated_candidate.certificate_url == "https://supabase/appreciation-cert.pdf"
+            
+            # Resolve and check the body formatting
+            resolved = CertificateMetadataResolver.resolve_all(candidate, mock_prog)
+            assert resolved["certTemplate"] == "appreciation"
+            assert resolved["certTitle"] == "CERTIFICATE OF APPRECIATION"
+            assert "proudly presented to" in resolved["bodyText"]
+            assert "Dr. Sarah Connor" in resolved["bodyText"]
+            assert "Faculty / Resource Person / Mentor" in resolved["bodyText"]
 
 
 @pytest.mark.asyncio

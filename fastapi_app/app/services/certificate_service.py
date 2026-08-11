@@ -300,14 +300,14 @@ class CertificateMetadataResolver:
         )
         prog_type_lower = program_type.lower()
         course_lower = course_name.lower()
-        if (
+        if cert_template not in ["appreciation", "achievement"] and (
             prog_type_lower in ["fdp", "faculty development programme"] or
             "fdp" in course_lower or
             "faculty development" in course_lower
         ):
             cert_template = "fdp"
             program_type = "Faculty Development Programme"
-        elif not candidate.program_id:
+        elif not candidate.program_id and cert_template not in ["appreciation", "achievement"]:
             if (
                 "webinar" in course_lower or
                 "workshop" in course_lower or
@@ -468,6 +468,8 @@ class CertificateMetadataResolver:
             return "CERTIFICATE OF PARTICIPATION"
         elif cert_template == "achievement":
             return "CERTIFICATE OF ACHIEVEMENT"
+        elif cert_template == "appreciation":
+            return "CERTIFICATE OF APPRECIATION"
         return "CERTIFICATE OF COMPLETION"
 
     @staticmethod
@@ -491,6 +493,19 @@ class CertificateMetadataResolver:
                 f"<b>{fdp_text}</b> organized by <b>{organization_name}</b>{assoc_str} on <b>{completion_date_str}</b>. "
                 f"{pronoun['subject']} actively participated throughout the "
                 f"program with full dedication and demonstrated a strong commitment to learning."
+            )
+        elif cert_template == "appreciation":
+            pos_pronoun = pronoun['possessive'].lower()
+            return (
+                f"This certificate is proudly presented to<br/>"
+                f"<font size=\"14.5\"><b>{recipient_name}</b></font><br/><br/>"
+                f"in recognition and appreciation of {pos_pronoun} valuable contribution as a "
+                f"<b>Faculty / Resource Person / Mentor</b> for the <b>{course_name}</b>, conducted by "
+                f"<b>{organization_name}</b>.<br/><br/>"
+                f"The programme was conducted from <b>{start_date_str} to {end_date_str}</b>, during which the faculty member "
+                f"shared {pos_pronoun} knowledge, expertise, and practical insights in the areas of <b>{topics}</b>.<br/><br/>"
+                f"We sincerely appreciate {pos_pronoun} dedication, expertise, and valuable contribution towards making the programme "
+                f"meaningful and enriching for all participants."
             )
         else:
             prog_title = f"<b>{program_type}</b> on <b>{course_name}</b>" if program_type and program_type.lower() != "course" else f"<b>{course_name}</b>"
@@ -609,12 +624,14 @@ class CertificateService:
         from reportlab.platypus import Paragraph
         from reportlab.lib.styles import ParagraphStyle
 
+        body_align = 1 if data.get("certTemplate") == "appreciation" else 0
         body_style = ParagraphStyle(
             'CertBody',
             fontName='Helvetica',
             fontSize=11,
             leading=15.5,
-            textColor=DARK_TEXT
+            textColor=DARK_TEXT,
+            alignment=body_align
         )
         p = Paragraph(body, body_style)
         pw, ph = p.wrap(content_w, 100 * mm)
@@ -623,19 +640,25 @@ class CertificateService:
 
         # ===================== Course/Program Details panel =====================
         panel_top = y - 6 * mm
-        detail_rows = [
-            ("Program", data["programType"]),
-            ("Organization", data["organizationName"]),
-        ]
-        if data.get("associationWith"):
-            detail_rows.append(("In Association With", data["associationWith"]))
-        detail_rows.extend([
-            ("Mode", data["courseMode"]),
-            ("Duration & Hours", data["courseDuration"]),
-            ("Topics Covered", data["courseTopics"]),
-            ("Start Date", data["startDate"]),
-            ("End Date", data["endDate"]),
-        ])
+        if data.get("certTemplate") == "appreciation":
+            detail_rows = [
+                ("Programme Duration", f"{data['startDate']} – {data['endDate']}"),
+                ("Faculty / Resource Person", data["recipientName"]),
+            ]
+        else:
+            detail_rows = [
+                ("Program", data["programType"]),
+                ("Organization", data["organizationName"]),
+            ]
+            if data.get("associationWith"):
+                detail_rows.append(("In Association With", data["associationWith"]))
+            detail_rows.extend([
+                ("Mode", data["courseMode"]),
+                ("Duration & Hours", data["courseDuration"]),
+                ("Topics Covered", data["courseTopics"]),
+                ("Start Date", data["startDate"]),
+                ("End Date", data["endDate"]),
+            ])
 
         label_w = 38 * mm
         row_leading = 6 * mm
@@ -669,7 +692,7 @@ class CertificateService:
         cy = panel_top - pad - 2 * mm
         c.setFillColor(NAVY)
         c.setFont("Helvetica-Bold", 11)
-        details_title = f"{data['programType']} Details" if data.get("programType") else "Course Details"
+        details_title = "Programme Details" if data.get("certTemplate") == "appreciation" else (f"{data['programType']} Details" if data.get("programType") else "Course Details")
         c.drawString(margin + pad, cy, details_title)
         cy -= 8 * mm
 
@@ -691,7 +714,7 @@ class CertificateService:
         y = panel_top - panel_height - 10 * mm
 
         # ===================== Performance remark =====================
-        if data.get("certTemplate") not in ("participation", "fdp") and data.get("performance"):
+        if data.get("certTemplate") not in ("participation", "fdp", "appreciation") and data.get("performance"):
             c.setFont("Helvetica", 11)
             c.setFillColor(DARK_TEXT)
             perf_line = "Performance during the period was "

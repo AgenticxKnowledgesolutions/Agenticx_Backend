@@ -25,4 +25,7 @@ api_router.include_router(collaborators.admin_router)
 api_router.include_router(placed_students.router)
 api_router.include_router(placed_students.admin_router)
 
+from app.api.routes import faculty_certificates
+api_router.include_router(faculty_certificates.router)
+
 
