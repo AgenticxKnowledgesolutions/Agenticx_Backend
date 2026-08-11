@@ -68,25 +68,39 @@ candidate_upload_service = CandidateUploadService()
 
 def get_effective_candidate_program(candidate: Any) -> dict:
     """
-    Determines candidate's effective program name and type.
+    Determines candidate's effective program name and type safely.
     Handles legacy, custom, and relationship-based course/program data.
-    Works for objects (SQLAlchemy model, Row) and dictionaries.
+    Works for objects (SQLAlchemy model, Row) and dictionaries without triggering async lazy loading I/O.
     """
     program_name = None
     program_type = None
     
-    # Helper to get attribute or dict key safely
+    # Safe getter helper to extract column value or dict key without triggering ORM relationship lazy loading
     def get_val(obj, key, default=None):
+        if obj is None:
+            return default
         if isinstance(obj, dict):
             return obj.get(key, default)
-        return getattr(obj, key, default)
+        # For SQLAlchemy models, check __dict__ first to ensure attribute is loaded into instance state
+        if hasattr(obj, "__dict__") and key in obj.__dict__:
+            return obj.__dict__[key]
+        # For standard columns or plain object attributes
+        try:
+            obj_type = type(obj)
+            if hasattr(obj_type, key):
+                from sqlalchemy.orm.attributes import InstrumentedAttribute
+                if isinstance(getattr(obj_type, key), InstrumentedAttribute):
+                    return default
+            return getattr(obj, key, default)
+        except Exception:
+            return default
 
-    # 1. Start with values from linked program relationship if loaded/present
+    # 1. Start with values from linked program relationship ONLY if already loaded into instance state (__dict__)
     prog = None
     if isinstance(candidate, dict):
         prog = candidate.get("program")
-    else:
-        prog = getattr(candidate, "program", None)
+    elif hasattr(candidate, "__dict__") and "program" in candidate.__dict__:
+        prog = candidate.__dict__["program"]
         
     if prog:
         program_name = get_val(prog, "name")
@@ -108,7 +122,7 @@ def get_effective_candidate_program(candidate: Any) -> dict:
                     program_type = field.title()
                 break
                 
-    if program_name:
+    if program_name and isinstance(program_name, str):
         program_name = program_name.strip()
     else:
         program_name = ""
@@ -127,7 +141,7 @@ def get_effective_candidate_program(candidate: Any) -> dict:
         else:
             program_type = "Course"
             
-    if not program_type:
+    if not program_type or not isinstance(program_type, str):
         program_type = "Course"
         
     return {
@@ -588,11 +602,19 @@ class CandidateService:
         formatted_records = []
         for r in records:
             r_dict = {c.name: getattr(r, c.name) for c in r.__table__.columns}
-            r_dict["aadhaar_number_masked"] = mask_aadhaar(decrypt_aadhaar(r.aadhaar_number_encrypted))
-            # Resolve effective program details and add them to the dictionary
-            eff_prog = get_effective_candidate_program(r)
-            r_dict["effective_program_name"] = eff_prog["name"]
-            r_dict["effective_program_type"] = eff_prog["type"]
+            try:
+                r_dict["aadhaar_number_masked"] = mask_aadhaar(decrypt_aadhaar(r.aadhaar_number_encrypted))
+            except Exception:
+                r_dict["aadhaar_number_masked"] = "XXXX XXXX XXXX"
+
+            try:
+                eff_prog = get_effective_candidate_program(r)
+                r_dict["effective_program_name"] = eff_prog.get("name", "")
+                r_dict["effective_program_type"] = eff_prog.get("type", "Course")
+            except Exception:
+                r_dict["effective_program_name"] = getattr(r, "course_applied", "") or ""
+                r_dict["effective_program_type"] = getattr(r, "program_type", "Course") or "Course"
+
             formatted_records.append(r_dict)
 
         return {"total": total, "records": formatted_records}
