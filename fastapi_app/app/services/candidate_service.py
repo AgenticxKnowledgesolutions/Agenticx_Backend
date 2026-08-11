@@ -732,7 +732,11 @@ class CandidateService:
         6. remaining_course_balance = max(0.0, final_payable_amount - course_paid).
         7. total_collected = admission_fee_paid_amount + course_paid.
         """
-        payments = list(candidate.payments) if hasattr(candidate, "payments") and candidate.payments else []
+        payments = []
+        if isinstance(candidate, dict):
+            payments = list(candidate.get("payments") or [])
+        elif hasattr(candidate, "__dict__") and "payments" in candidate.__dict__:
+            payments = list(candidate.__dict__["payments"] or [])
 
         if current_payment and current_payment.status == "Paid":
             if not any(p.id == current_payment.id for p in payments):

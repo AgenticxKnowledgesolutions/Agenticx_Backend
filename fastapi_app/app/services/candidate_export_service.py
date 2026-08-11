@@ -118,8 +118,24 @@ class CandidateExportService:
 
         rows = []
         for c in candidates:
-            eff_prog = get_effective_candidate_program(c)
-            fin = CandidateService.calculate_financials(c)
+            try:
+                eff_prog = get_effective_candidate_program(c)
+            except Exception:
+                eff_prog = {
+                    "name": getattr(c, "course_applied", "") or "",
+                    "type": getattr(c, "program_type", "Course") or "Course"
+                }
+
+            try:
+                fin = CandidateService.calculate_financials(c)
+            except Exception:
+                fin = {
+                    "standard_course_fee": getattr(c, "standard_course_fee", 0.0) or 0.0,
+                    "scholarship_amount": getattr(c, "scholarship_amount", 0.0) or 0.0,
+                    "admission_fee_paid": getattr(c, "admission_fee_paid", False),
+                    "total_paid": 0.0,
+                    "balance_remaining": 0.0
+                }
 
             # Aadhaar masking
             masked_aadhaar = "XXXX XXXX XXXX"
