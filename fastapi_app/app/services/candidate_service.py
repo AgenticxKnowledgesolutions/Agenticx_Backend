@@ -66,6 +66,75 @@ class CandidateUploadService(UploadService):
 
 candidate_upload_service = CandidateUploadService()
 
+def get_effective_candidate_program(candidate: Any) -> dict:
+    """
+    Determines candidate's effective program name and type.
+    Handles legacy, custom, and relationship-based course/program data.
+    Works for objects (SQLAlchemy model, Row) and dictionaries.
+    """
+    program_name = None
+    program_type = None
+    
+    # Helper to get attribute or dict key safely
+    def get_val(obj, key, default=None):
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    # 1. Start with values from linked program relationship if loaded/present
+    prog = None
+    if isinstance(candidate, dict):
+        prog = candidate.get("program")
+    else:
+        prog = getattr(candidate, "program", None)
+        
+    if prog:
+        program_name = get_val(prog, "name")
+        program_type = get_val(prog, "program_type")
+        
+    # 2. Fall back to direct CandidateApplication database fields
+    if not program_name:
+        program_name = get_val(candidate, "course_applied")
+    if not program_type:
+        program_type = get_val(candidate, "program_type")
+        
+    # 3. Check legacy/older fields if any exist on the object
+    if not program_name:
+        for field in ["course_name", "custom_course_name", "program", "internship", "webinar"]:
+            val = get_val(candidate, field)
+            if val and isinstance(val, str):
+                program_name = val
+                if not program_type and field in ["internship", "webinar"]:
+                    program_type = field.title()
+                break
+                
+    if program_name:
+        program_name = program_name.strip()
+    else:
+        program_name = ""
+        
+    # 4. Infer program type if name is present but type is not
+    if program_name and not program_type:
+        name_lower = program_name.lower()
+        if "webinar" in name_lower:
+            program_type = "Webinar"
+        elif "fdp" in name_lower or "faculty development" in name_lower:
+            program_type = "FDP"
+        elif "workshop" in name_lower or "bootcamp" in name_lower:
+            program_type = "Workshop"
+        elif "internship" in name_lower or "intern" in name_lower:
+            program_type = "Internship"
+        else:
+            program_type = "Course"
+            
+    if not program_type:
+        program_type = "Course"
+        
+    return {
+        "name": program_name,
+        "type": program_type
+    }
+
 # -------------------------------------------------------------
 # Service Core Class
 # -------------------------------------------------------------
@@ -471,7 +540,18 @@ class CandidateService:
         if status_filter:
             conditions.append(CandidateApplication.application_status == status_filter)
         if course_filter:
-            conditions.append(CandidateApplication.course_applied == course_filter)
+            from app.models.program import Program
+            stmt = stmt.outerjoin(Program, CandidateApplication.program_id == Program.id)
+            count_stmt = count_stmt.outerjoin(Program, CandidateApplication.program_id == Program.id)
+            conditions.append(
+                or_(
+                    CandidateApplication.course_applied == course_filter,
+                    and_(
+                        CandidateApplication.program_id == Program.id,
+                        Program.name == course_filter
+                    )
+                )
+            )
         if qualification_filter:
             conditions.append(CandidateApplication.qualification.ilike(f"%{qualification_filter}%"))
         if start_date:
@@ -509,9 +589,79 @@ class CandidateService:
         for r in records:
             r_dict = {c.name: getattr(r, c.name) for c in r.__table__.columns}
             r_dict["aadhaar_number_masked"] = mask_aadhaar(decrypt_aadhaar(r.aadhaar_number_encrypted))
+            # Resolve effective program details and add them to the dictionary
+            eff_prog = get_effective_candidate_program(r)
+            r_dict["effective_program_name"] = eff_prog["name"]
+            r_dict["effective_program_type"] = eff_prog["type"]
             formatted_records.append(r_dict)
 
         return {"total": total, "records": formatted_records}
+
+    @classmethod
+    async def get_program_options(cls, db: AsyncSession) -> List[Dict[str, Any]]:
+        """
+        Retrieves a dynamic, aggregated list of all programs/courses used by candidates.
+        """
+        from app.models.program import Program
+        stmt = (
+            select(
+                CandidateApplication.course_applied,
+                CandidateApplication.program_type,
+                Program.name.label("prog_name"),
+                Program.program_type.label("prog_type"),
+                func.count(CandidateApplication.id).label("count")
+            )
+            .outerjoin(Program, CandidateApplication.program_id == Program.id)
+            .where(
+                CandidateApplication.is_deleted == False
+            )
+            .group_by(
+                CandidateApplication.course_applied,
+                CandidateApplication.program_type,
+                Program.name,
+                Program.program_type
+            )
+        )
+        res = await db.execute(stmt)
+        rows = res.all()
+
+        aggregated = {}
+        for course_applied, program_type, prog_name, prog_type, count in rows:
+            class MockProgram:
+                def __init__(self, name, ptype):
+                    self.name = name
+                    self.program_type = ptype
+
+            class MockCandidate:
+                def __init__(self, ca, pt, prog):
+                    self.course_applied = ca
+                    self.program_type = pt
+                    self.program = prog
+
+            prog_obj = MockProgram(prog_name, prog_type) if prog_name else None
+            mock_cand = MockCandidate(course_applied, program_type, prog_obj)
+            resolved = get_effective_candidate_program(mock_cand)
+            name = resolved["name"]
+            type_val = resolved["type"]
+
+            if not name:
+                continue
+
+            key = (name, type_val)
+            if key not in aggregated:
+                aggregated[key] = 0
+            aggregated[key] += count
+
+        results = []
+        for (name, type_val), count in aggregated.items():
+            results.append({
+                "name": name,
+                "type": type_val,
+                "count": count
+            })
+
+        results.sort(key=lambda x: x["name"].lower())
+        return results
 
     @classmethod
     def calculate_financials(

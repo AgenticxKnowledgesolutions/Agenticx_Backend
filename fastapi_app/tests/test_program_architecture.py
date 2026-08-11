@@ -377,3 +377,80 @@ async def test_candidate_program_type_precedence():
                 assert "Course" not in called_texts
 
 
+@pytest.mark.asyncio
+async def test_get_effective_candidate_program():
+    from app.services.candidate_service import get_effective_candidate_program
+    
+    # Test case 1: Linked program relationship
+    class MockProgram:
+        def __init__(self, name, ptype):
+            self.name = name
+            self.program_type = ptype
+
+    class MockCandidate:
+        def __init__(self, ca, pt, prog=None):
+            self.course_applied = ca
+            self.program_type = pt
+            self.program = prog
+
+    prog = MockProgram("Python Development Course", "Course")
+    cand1 = MockCandidate("Wrong Name", "Internship", prog)
+    res1 = get_effective_candidate_program(cand1)
+    assert res1["name"] == "Python Development Course"
+    assert res1["type"] == "Course"
+
+    # Test case 2: Fall back to direct CandidateApplication database fields
+    cand2 = MockCandidate("Custom Internship Program", "Internship")
+    res2 = get_effective_candidate_program(cand2)
+    assert res2["name"] == "Custom Internship Program"
+    assert res2["type"] == "Internship"
+
+    # Test case 3: Fall back to legacy fields (e.g. dictionary or attributes)
+    cand3 = {"course_name": "Legacy Webinar on AI", "program_type": None}
+    res3 = get_effective_candidate_program(cand3)
+    assert res3["name"] == "Legacy Webinar on AI"
+    assert res3["type"] == "Webinar"  # inferred from name
+
+
+@pytest.mark.asyncio
+async def test_get_program_options_service():
+    from app.services.candidate_service import CandidateService
+    mock_db = AsyncMock()
+
+    # Mock DB query results for SELECT CandidateApplication & Program outerjoin aggregation
+    # rows: (course_applied, program_type, prog_name, prog_type, count)
+    mock_rows = [
+        ("AI & ML Bootcamp", "Course", None, None, 5),
+        ("Web Dev Internship", "Internship", None, None, 3),
+        (None, None, "AI & ML Bootcamp", "Course", 2), # Legacy with program link but null course_applied
+        ("", "", "FDP on Research", "FDP", 4), # Legacy empty course_applied
+    ]
+    
+    mock_result = MagicMock()
+    mock_result.all.return_value = mock_rows
+    mock_db.execute.return_value = mock_result
+    
+    options = await CandidateService.get_program_options(mock_db)
+    
+    # Expected options:
+    # 1. "AI & ML Bootcamp" (Course) -> count: 5 + 2 = 7
+    # 2. "FDP on Research" (FDP) -> count: 4
+    # 3. "Web Dev Internship" (Internship) -> count: 3
+    # Sorted alphabetically:
+    # "AI & ML Bootcamp", "FDP on Research", "Web Dev Internship"
+    
+    assert len(options) == 3
+    assert options[0]["name"] == "AI & ML Bootcamp"
+    assert options[0]["type"] == "Course"
+    assert options[0]["count"] == 7
+
+    assert options[1]["name"] == "FDP on Research"
+    assert options[1]["type"] == "FDP"
+    assert options[1]["count"] == 4
+
+    assert options[2]["name"] == "Web Dev Internship"
+    assert options[2]["type"] == "Internship"
+    assert options[2]["count"] == 3
+
+
+

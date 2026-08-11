@@ -269,6 +269,15 @@ async def mark_notifications_read(
     return {"success": True}
 
 
+@router.get("/program-options")
+async def get_program_options(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin)
+):
+    """Admin: get unique candidate program/course options with counts."""
+    return await CandidateService.get_program_options(db)
+
+
 @router.delete("/permanent", status_code=status.HTTP_200_OK)
 async def bulk_permanent_delete_candidates(
     payload: BulkDeleteCandidatesPayload,

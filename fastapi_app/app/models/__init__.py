@@ -18,6 +18,7 @@ from app.models.job import Job, JobApplication
 from app.models.program import Program
 from app.models.collaborator import Collaborator
 from app.models.placed_student import PlacedStudent
+from app.models.admin_email_verification import AdminEmailVerification
 
 __all__ = [
     "Base",
@@ -42,7 +43,8 @@ __all__ = [
     "CandidatePayment",
     "AdminNotification",
     "Job",
-    "JobApplication"
+    "JobApplication",
+    "AdminEmailVerification"
 ]
 
 
