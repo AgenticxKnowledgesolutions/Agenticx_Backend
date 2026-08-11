@@ -1440,3 +1440,46 @@ async def razorpay_payment_webhook(
         
     return {"success": True}
 
+
+from pydantic import BaseModel
+from fastapi.responses import Response
+from app.services.candidate_export_service import CandidateExportService
+
+
+class CandidateExportRequestPayload(BaseModel):
+    scope: str = "filtered"  # "all", "filtered", "selected"
+    format: str = "xlsx"     # "xlsx", "csv"
+    candidate_ids: Optional[List[str]] = None
+    status_filter: Optional[str] = None
+    course_filter: Optional[str] = None
+    qualification_filter: Optional[str] = None
+    search_query: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+
+
+@router.post("/export")
+async def export_candidates(
+    payload: CandidateExportRequestPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin: Export candidate data to Excel (.xlsx) or CSV format based on scope and active filters."""
+    content, filename, media_type = await CandidateExportService.export_candidates(
+        db=db,
+        scope=payload.scope,
+        candidate_ids=payload.candidate_ids,
+        status_filter=payload.status_filter,
+        course_filter=payload.course_filter,
+        qualification_filter=payload.qualification_filter,
+        search_query=payload.search_query,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+        format_type=payload.format
+    )
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
