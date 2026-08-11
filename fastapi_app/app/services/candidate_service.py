@@ -66,6 +66,38 @@ class CandidateUploadService(UploadService):
 
 candidate_upload_service = CandidateUploadService()
 
+def normalize_program_name(raw_name: str) -> str:
+    """
+    Normalizes course/program title formatting and casing.
+    Deduplicates lowercase/uppercase variations (e.g. 'full stack' -> 'Full Stack').
+    Preserves known tech/domain acronyms (e.g. AI, ML, FDP, MERN, AWS, UI/UX, etc.) and lowercases small connectors (on, in, of, and, with).
+    """
+    if not raw_name or not isinstance(raw_name, str):
+        return ""
+    cleaned = " ".join(raw_name.strip().split())
+    if not cleaned:
+        return ""
+
+    if not cleaned.islower() and not cleaned.isupper():
+        return cleaned
+
+    words = cleaned.split(" ")
+    normalized_words = []
+    acronyms = {"AI", "ML", "FDP", "MERN", "AWS", "UI/UX", "IT", "HR", "SQL", "API", "REST", "MEAN", "PHP", "SEO", "JS", "CSS", "HTML"}
+    small_words = {"on", "in", "of", "and", "with", "for", "to", "at", "by"}
+
+    for idx, w in enumerate(words):
+        w_upper = w.upper()
+        w_lower = w.lower()
+        if w_upper in acronyms:
+            normalized_words.append(w_upper)
+        elif idx > 0 and w_lower in small_words:
+            normalized_words.append(w_lower)
+        else:
+            normalized_words.append(w.capitalize())
+
+    return " ".join(normalized_words)
+
 def get_effective_candidate_program(candidate: Any) -> dict:
     """
     Determines candidate's effective program name and type safely.
@@ -123,7 +155,7 @@ def get_effective_candidate_program(candidate: Any) -> dict:
                 break
                 
     if program_name and isinstance(program_name, str):
-        program_name = program_name.strip()
+        program_name = normalize_program_name(program_name)
     else:
         program_name = ""
         
@@ -559,10 +591,10 @@ class CandidateService:
             count_stmt = count_stmt.outerjoin(Program, CandidateApplication.program_id == Program.id)
             conditions.append(
                 or_(
-                    CandidateApplication.course_applied == course_filter,
+                    CandidateApplication.course_applied.ilike(course_filter),
                     and_(
                         CandidateApplication.program_id == Program.id,
-                        Program.name == course_filter
+                        Program.name.ilike(course_filter)
                     )
                 )
             )
@@ -669,19 +701,16 @@ class CandidateService:
             if not name:
                 continue
 
-            key = (name, type_val)
+            key = (name.lower(), type_val.lower())
             if key not in aggregated:
-                aggregated[key] = 0
-            aggregated[key] += count
+                aggregated[key] = {
+                    "name": name,
+                    "type": type_val,
+                    "count": 0
+                }
+            aggregated[key]["count"] += count
 
-        results = []
-        for (name, type_val), count in aggregated.items():
-            results.append({
-                "name": name,
-                "type": type_val,
-                "count": count
-            })
-
+        results = list(aggregated.values())
         results.sort(key=lambda x: x["name"].lower())
         return results
 
