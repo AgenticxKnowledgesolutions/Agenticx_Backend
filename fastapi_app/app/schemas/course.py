@@ -71,6 +71,7 @@ class CourseCreate(BaseModel):
     mode: str = "hybrid"
     difficulty: str = "intermediate"
     is_ai_optimized: bool = False
+    show_amount_on_website: bool = True
     stack: List[TechStackCreate] = []
     curriculum: List[CurriculumMonthCreate] = []
 
@@ -91,6 +92,7 @@ class CourseUpdate(BaseModel):
     difficulty: Optional[str] = None
     is_ai_optimized: Optional[bool] = None
     is_active: Optional[bool] = None
+    show_amount_on_website: Optional[bool] = None
     stack: Optional[List[TechStackCreate]] = None
     curriculum: Optional[List[CurriculumMonthCreate]] = None
 
@@ -111,6 +113,7 @@ class CourseResponse(BaseModel):
     coverImageUrl: Optional[str] = None
     brochureUrl: Optional[str] = None
     isAiOptimized: bool = False
+    show_amount_on_website: bool = True
     is_deleted: bool = False
     deleted_at: Optional[datetime] = None
     deleted_by: Optional[str] = None

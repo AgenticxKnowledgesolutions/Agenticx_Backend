@@ -91,6 +91,7 @@ class Course(Base):
     difficulty: Mapped[CourseDifficulty] = mapped_column(SAEnum(CourseDifficulty), default=CourseDifficulty.intermediate)
     is_ai_optimized: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    show_amount_on_website: Mapped[bool] = mapped_column(Boolean, default=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_by: Mapped[str | None] = mapped_column(String(50), nullable=True)

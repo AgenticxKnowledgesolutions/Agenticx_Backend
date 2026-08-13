@@ -28,6 +28,7 @@ def _to_response(course: Course) -> CourseResponse:
         coverImageUrl=course.cover_image_url,
         brochureUrl=course.brochure_url,
         isAiOptimized=course.is_ai_optimized,
+        show_amount_on_website=course.show_amount_on_website,
         stats=CourseStats(
             duration=course.duration,
             format=course.format,
