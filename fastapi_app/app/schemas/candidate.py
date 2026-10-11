@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, model_validator
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 from app.models.enums import ProgramType, PerformanceType
 
@@ -84,8 +84,10 @@ class BulkRegenerateCertificatesPayload(BaseModel):
 
 
 class CandidateEnrollAdditional(BaseModel):
-    candidate_id: str = Field(..., description="ID of the existing candidate application/profile")
-    program_id: str = Field(..., description="ID of the new program/course to enroll into")
+    candidate_id: Optional[str] = Field(None, description="ID of the existing candidate application/profile")
+    lead_id: Optional[str] = Field(None, description="ID of the lead associated with the candidate")
+    program_id: Optional[str] = Field(None, description="ID of the new program/course to enroll into")
+    new_program_id: Optional[str] = Field(None, description="Alias for program_id")
     mode_of_learning: Optional[str] = Field(None, max_length=100)
     course_start_date: Optional[datetime] = None
     batch_name: Optional[str] = Field(None, max_length=100)
@@ -95,6 +97,23 @@ class CandidateEnrollAdditional(BaseModel):
     admission_fee_amount: Optional[float] = Field(250.0, ge=0)
     admission_fee_paid: bool = False
     remarks: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_aliases_and_required(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Resolve program identifier
+            prog = data.get("program_id") or data.get("new_program_id")
+            if not prog:
+                raise ValueError("program_id or new_program_id is required")
+            data["program_id"] = prog
+            data["new_program_id"] = prog
+
+            # Resolve person/candidate identifier
+            cand = data.get("candidate_id") or data.get("lead_id")
+            if not cand:
+                raise ValueError("candidate_id or lead_id is required")
+        return data
 
 
 

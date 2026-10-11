@@ -516,20 +516,30 @@ class CandidateService:
         from app.models.program import Program
 
         candidate_id = payload.get("candidate_id")
-        new_program_id = payload.get("program_id")
+        lead_id = payload.get("lead_id")
+        new_program_id = payload.get("program_id") or payload.get("new_program_id")
 
-        if not candidate_id:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="candidate_id is required")
+        if not candidate_id and not lead_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="candidate_id or lead_id is required")
         if not new_program_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="program_id is required")
 
         # 1. Fetch base candidate profile
-        base_stmt = select(CandidateApplication).where(
-            CandidateApplication.id == candidate_id,
-            CandidateApplication.is_deleted == False
-        )
-        base_res = await db.execute(base_stmt)
-        base_candidate = base_res.scalar_one_or_none()
+        if candidate_id:
+            base_stmt = select(CandidateApplication).where(
+                CandidateApplication.id == candidate_id,
+                CandidateApplication.is_deleted == False
+            )
+            base_res = await db.execute(base_stmt)
+            base_candidate = base_res.scalar_one_or_none()
+        else:
+            base_stmt = select(CandidateApplication).where(
+                CandidateApplication.lead_id == lead_id,
+                CandidateApplication.is_deleted == False
+            ).order_by(CandidateApplication.created_at.desc())
+            base_res = await db.execute(base_stmt)
+            base_candidate = base_res.scalars().first()
+
         if not base_candidate:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
 
@@ -816,12 +826,20 @@ class CandidateService:
         end_date: Optional[datetime] = None,
         skip: int = 0,
         limit: int = 50,
+        lead_id: Optional[str] = None,
         is_deleted: bool = False
     ) -> Dict[str, Any]:
         stmt = select(CandidateApplication)
         count_stmt = select(func.count(CandidateApplication.id))
         
         conditions = [CandidateApplication.is_deleted == is_deleted]
+        # Filter applications belonging to the selected person
+        if lead_id is not None:
+            trimmed_lead_id = lead_id.strip()
+            if trimmed_lead_id:
+                conditions.append(CandidateApplication.lead_id == trimmed_lead_id)
+            else:
+                conditions.append(CandidateApplication.lead_id == "__none__")
         if status_filter:
             conditions.append(CandidateApplication.application_status == status_filter)
         if course_filter:

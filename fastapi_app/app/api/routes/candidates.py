@@ -223,15 +223,20 @@ async def enroll_additional_course(
     new_candidate = await CandidateService.enroll_additional_course(
         db, payload, created_by=current_user.email
     )
-    return {
-        "success": True,
-        "detail": "Candidate successfully enrolled in additional course",
-        "id": new_candidate.id,
-        "application_number": new_candidate.application_number,
-        "course_applied": new_candidate.course_applied,
-        "program_id": new_candidate.program_id,
-        "application_status": new_candidate.application_status
+    res_dict = {c.name: getattr(new_candidate, c.name) for c in new_candidate.__table__.columns} if hasattr(new_candidate, "__table__") else {
+        "id": getattr(new_candidate, "id", None),
+        "lead_id": getattr(new_candidate, "lead_id", None),
+        "application_number": getattr(new_candidate, "application_number", None),
+        "full_name": getattr(new_candidate, "full_name", None),
+        "email": getattr(new_candidate, "email", None),
+        "phone": getattr(new_candidate, "phone", None),
+        "course_applied": getattr(new_candidate, "course_applied", None),
+        "program_id": getattr(new_candidate, "program_id", None),
+        "application_status": getattr(new_candidate, "application_status", None),
     }
+    res_dict["success"] = True
+    res_dict["detail"] = "Candidate successfully enrolled in additional course"
+    return res_dict
 
 
 @router.get("/")
@@ -245,6 +250,7 @@ async def list_candidates(
     skip: int = 0,
     limit: int = 50,
     is_deleted: bool = Query(False, alias="is_deleted"),
+    lead_id: Optional[str] = Query(None, description="Filter applications by lead ID"),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin)
 ):
@@ -259,6 +265,7 @@ async def list_candidates(
         end_date=end_date,
         skip=skip,
         limit=limit,
+        lead_id=lead_id,
         is_deleted=is_deleted
     )
 
