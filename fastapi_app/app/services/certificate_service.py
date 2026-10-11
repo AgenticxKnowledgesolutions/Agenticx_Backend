@@ -2,6 +2,7 @@ import uuid
 import urllib.parse
 import logging
 from datetime import datetime
+from typing import Optional, Dict, Any, List
 
 logger = logging.getLogger(__name__)
 import httpx

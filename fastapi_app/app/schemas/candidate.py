@@ -83,6 +83,21 @@ class BulkRegenerateCertificatesPayload(BaseModel):
     candidate_ids: List[str]
 
 
+class CandidateEnrollAdditional(BaseModel):
+    candidate_id: str = Field(..., description="ID of the existing candidate application/profile")
+    program_id: str = Field(..., description="ID of the new program/course to enroll into")
+    mode_of_learning: Optional[str] = Field(None, max_length=100)
+    course_start_date: Optional[datetime] = None
+    batch_name: Optional[str] = Field(None, max_length=100)
+    trainer_name: Optional[str] = Field(None, max_length=255)
+    training_location: Optional[str] = Field(None, max_length=255)
+    standard_course_fee: Optional[float] = Field(None, ge=0)
+    admission_fee_amount: Optional[float] = Field(250.0, ge=0)
+    admission_fee_paid: bool = False
+    remarks: Optional[str] = None
+
+
+
 class CandidateOfferUpdate(BaseModel):
     standard_course_fee: Optional[float] = Field(None, ge=0)
     scholarship_amount: float = Field(0.0, ge=0)

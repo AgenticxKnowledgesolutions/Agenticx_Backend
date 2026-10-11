@@ -8,7 +8,7 @@ from datetime import datetime
 from app.core.database import get_db
 from app.schemas.candidate import (
     CandidateCreate, CandidateStatusUpdate, CandidateNoteCreate, CandidateImportMapping,
-    BulkDeleteCandidatesPayload, BulkRegenerateCertificatesPayload,
+    BulkDeleteCandidatesPayload, BulkRegenerateCertificatesPayload, CandidateEnrollAdditional,
     CandidatePersonalInfoUpdate, CandidateAcademicInfoUpdate, CandidateProfessionalInfoUpdate,
     CandidateProgramInfoUpdate, CandidateFeeInfoUpdate, CandidateCertificateInfoUpdate
 )
@@ -205,6 +205,34 @@ async def apply_candidate(
     except Exception as e:
         logger.error(f"Unexpected error in apply_candidate: {str(e)}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.post("/enroll-additional", status_code=status.HTTP_201_CREATED)
+async def enroll_additional_course(
+    data: CandidateEnrollAdditional,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin: enroll an existing candidate in an additional course/program.
+
+    Creates a new independent CandidateApplication for the same person,
+    reusing identity and profile data while keeping course and certificate data isolated.
+    Rejects duplicate enrollment if candidate is already enrolled in the same course.
+    """
+    payload = data.model_dump()
+    new_candidate = await CandidateService.enroll_additional_course(
+        db, payload, created_by=current_user.email
+    )
+    return {
+        "success": True,
+        "detail": "Candidate successfully enrolled in additional course",
+        "id": new_candidate.id,
+        "application_number": new_candidate.application_number,
+        "course_applied": new_candidate.course_applied,
+        "program_id": new_candidate.program_id,
+        "application_status": new_candidate.application_status
+    }
+
 
 @router.get("/")
 async def list_candidates(

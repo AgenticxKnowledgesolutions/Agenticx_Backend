@@ -470,10 +470,10 @@ async def test_get_program_options_service():
     # Mock DB query results for SELECT CandidateApplication & Program outerjoin aggregation
     # rows: (course_applied, program_type, prog_name, prog_type, count)
     mock_rows = [
-        ("AI & ML Bootcamp", "Course", None, None, 5),
-        ("Web Dev Internship", "Internship", None, None, 3),
-        (None, None, "AI & ML Bootcamp", "Course", 2), # Legacy with program link but null course_applied
-        ("", "", "FDP on Research", "FDP", 4), # Legacy empty course_applied
+        (None,"AI & ML Bootcamp", "Course", None, None, 5),
+        (None,"Web Dev Internship", "Internship", None, None, 3),
+        ("prog-ai-ml",None, None, "AI & ML Bootcamp", "Course", 2), # Legacy with program link but null course_applied
+        ("prog-fdp","", "", "FDP on Research", "FDP", 4), # Legacy empty course_applied
     ]
     
     mock_result = MagicMock()

@@ -499,6 +499,245 @@ class CandidateService:
         await db.refresh(candidate)
         return candidate
 
+    @classmethod
+    async def enroll_additional_course(
+        cls,
+        db: AsyncSession,
+        payload: Dict[str, Any],
+        created_by: Optional[str] = "Admin"
+    ) -> CandidateApplication:
+        """
+        Enrolls an existing candidate in an additional course/program.
+        Creates a new independent CandidateApplication record under the same person/lead,
+        reusing common profile/demographic/academic/professional data, but keeping
+        all course-specific, financial, application-number, and certificate data independent.
+        Rejects if the candidate is already enrolled in the same course.
+        """
+        from app.models.program import Program
+
+        candidate_id = payload.get("candidate_id")
+        new_program_id = payload.get("program_id")
+
+        if not candidate_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="candidate_id is required")
+        if not new_program_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="program_id is required")
+
+        # 1. Fetch base candidate profile
+        base_stmt = select(CandidateApplication).where(
+            CandidateApplication.id == candidate_id,
+            CandidateApplication.is_deleted == False
+        )
+        base_res = await db.execute(base_stmt)
+        base_candidate = base_res.scalar_one_or_none()
+        if not base_candidate:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
+
+        # 2. Fetch new Program record
+        prog_stmt = select(Program).where(Program.id == new_program_id, Program.is_deleted == False)
+        prog_res = await db.execute(prog_stmt)
+        new_program = prog_res.scalar_one_or_none()
+        if not new_program:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target program/course not found")
+
+        # 3. Check for existing enrollments for this person to prevent duplicate enrollment in the same course
+        # Match person by lead_id (if available) or email/phone
+        person_conditions = []
+        if base_candidate.lead_id:
+            person_conditions.append(CandidateApplication.lead_id == base_candidate.lead_id)
+        if base_candidate.email:
+            person_conditions.append(CandidateApplication.email.ilike(base_candidate.email.strip().lower()))
+        if base_candidate.phone:
+            person_conditions.append(CandidateApplication.phone == base_candidate.phone.strip())
+
+        existing_apps_stmt = select(CandidateApplication).where(
+            or_(*person_conditions),
+            CandidateApplication.is_deleted == False
+        )
+        existing_apps_res = await db.execute(existing_apps_stmt)
+        existing_applications = existing_apps_res.scalars().all()
+
+        norm_new_title = normalize_program_name(new_program.name).lower()
+        for app in existing_applications:
+            # Same program_id match
+            if app.program_id and app.program_id == new_program.id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="This candidate is already enrolled in this course."
+                )
+            # Same course name match (handles legacy records or renamed course strings)
+            if app.course_applied:
+                norm_existing_title = normalize_program_name(app.course_applied).lower()
+                if norm_existing_title and norm_existing_title == norm_new_title:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="This candidate is already enrolled in this course."
+                    )
+
+        # 4. Generate unique application number for this new course enrollment
+        new_app_num = await cls.generate_application_number(db)
+
+        # 5. Determine course-specific details
+        mode_of_learning = payload.get("mode_of_learning") or new_program.mode or base_candidate.mode_of_learning
+        course_duration = new_program.duration or base_candidate.course_duration
+        course_start_date = payload.get("course_start_date") or new_program.start_date
+
+        standard_course_fee = payload.get("standard_course_fee")
+        if standard_course_fee is None:
+            standard_course_fee = float(new_program.standard_fee) if new_program.standard_fee else 0.0
+        else:
+            standard_course_fee = float(standard_course_fee)
+
+        admission_fee_amount = payload.get("admission_fee_amount")
+        if admission_fee_amount is None:
+            admission_fee_amount = 250.0
+        else:
+            admission_fee_amount = float(admission_fee_amount)
+
+        admission_fee_paid = bool(payload.get("admission_fee_paid", False))
+
+        # 6. Instantiate new CandidateApplication with safely copied identity data
+        new_candidate = CandidateApplication(
+            id=str(uuid.uuid4()),
+            lead_id=base_candidate.lead_id,
+            program_id=new_program.id,
+            application_number=new_app_num,
+            # Common Identity / Demographic Information
+            full_name=base_candidate.full_name,
+            preferred_name=base_candidate.preferred_name,
+            email=base_candidate.email,
+            phone=base_candidate.phone,
+            whatsapp_number=base_candidate.whatsapp_number,
+            address=base_candidate.address,
+            city=base_candidate.city,
+            district=base_candidate.district,
+            state=base_candidate.state,
+            country=base_candidate.country,
+            pincode=base_candidate.pincode,
+            date_of_birth=base_candidate.date_of_birth,
+            gender=base_candidate.gender,
+            emergency_contact=base_candidate.emergency_contact,
+            blood_group=base_candidate.blood_group,
+            pan_number=base_candidate.pan_number,
+            aadhaar_number_encrypted=base_candidate.aadhaar_number_encrypted,
+            parent_guardian_name=base_candidate.parent_guardian_name,
+            parent_guardian_occupation=base_candidate.parent_guardian_occupation,
+            parent_guardian_phone=base_candidate.parent_guardian_phone,
+            parent_guardian_relationship=base_candidate.parent_guardian_relationship,
+            reference_details=base_candidate.reference_details,
+            languages_known=base_candidate.languages_known,
+            # Common Academic Information
+            college_name=base_candidate.college_name,
+            qualification=base_candidate.qualification,
+            university_name=base_candidate.university_name,
+            sslc_details=base_candidate.sslc_details,
+            plus_two_details=base_candidate.plus_two_details,
+            diploma_details=base_candidate.diploma_details,
+            ug_details=base_candidate.ug_details,
+            pg_details=base_candidate.pg_details,
+            academic_percentage=base_candidate.academic_percentage,
+            academic_cgpa=base_candidate.academic_cgpa,
+            passing_year=base_candidate.passing_year,
+            academic_status=base_candidate.academic_status,
+            # Common Professional Information
+            experience_years=base_candidate.experience_years,
+            company_name=base_candidate.company_name,
+            skills=base_candidate.skills,
+            linkedin_url=base_candidate.linkedin_url,
+            portfolio_url=base_candidate.portfolio_url,
+            # Common Document URLs
+            cv_url=base_candidate.cv_url,
+            photo_url=base_candidate.photo_url,
+            aadhaar_url=base_candidate.aadhaar_url,
+            college_id_url=base_candidate.college_id_url,
+            confirmation_letter_url=base_candidate.confirmation_letter_url,
+            # New Independent Course Data
+            course_applied=new_program.name,
+            program_type=new_program.program_type,
+            programme_domain=new_program.domain,
+            mode_of_learning=mode_of_learning,
+            course_duration=course_duration,
+            course_start_date=course_start_date,
+            batch_name=payload.get("batch_name"),
+            trainer_name=payload.get("trainer_name"),
+            training_location=payload.get("training_location"),
+            application_status="Enrolled" if admission_fee_paid else "Submitted",
+            candidate_source="Admin Additional Enrollment",
+            candidate_token=uuid.uuid4().hex,
+            # Independent Financials
+            standard_course_fee=standard_course_fee,
+            final_payable_amount=standard_course_fee,
+            scholarship_amount=0.0,
+            special_discount=0.0,
+            corporate_discount=0.0,
+            promo_discount=0.0,
+            booking_amount=0.0,
+            gst_percentage=0.0,
+            gst_amount=0.0,
+            convenience_fee=0.0,
+            admission_fee_amount=admission_fee_amount,
+            admission_fee_paid=admission_fee_paid,
+            auto_enroll_enabled=True,
+            # Independent Certificate Fields (Never copied!)
+            certificate_id=None,
+            certificate_url=None,
+            certificate_status="pending",
+            completed_at=None,
+            performance=None,
+            certificate_program_type=None,
+            certificate_course_name=None,
+            certificate_partner=None,
+            certificate_topics=None,
+            certificate_domain=None,
+            certificate_duration=None,
+            certificate_mode=None,
+            certificate_body_override=None,
+            certificate_title_override=None,
+            certificate_completion_date=None,
+            certificate_issue_date=None,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+
+        new_candidate.document_status = cls.calculate_document_status(new_candidate)
+        db.add(new_candidate)
+
+        # Remarks note
+        if payload.get("remarks"):
+            await cls.add_candidate_note(
+                db,
+                new_candidate.id,
+                f"[Additional Course Remarks]: {payload.get('remarks')}",
+                created_by=created_by
+            )
+
+        await db.flush()
+
+        # Log timeline event
+        await cls.add_timeline_event(
+            db,
+            new_candidate.id,
+            "Enrolled",
+            f"Enrolled in additional course '{new_program.name}' (App Ref: {new_app_num}) by {created_by}.",
+            created_by
+        )
+
+        # Trigger internal admin notification
+        notification = AdminNotification(
+            id=str(uuid.uuid4()),
+            title="Candidate Additional Course Enrollment",
+            message=f"Candidate {new_candidate.full_name} enrolled in additional course {new_program.name} ({new_app_num}).",
+            notification_type="new_application",
+            is_read=False,
+            created_at=datetime.utcnow()
+        )
+        db.add(notification)
+
+        await db.commit()
+        await db.refresh(new_candidate)
+        return new_candidate
+
+
     @staticmethod
     async def add_timeline_event(
         db: AsyncSession, candidate_id: str, event_type: str, description: str, created_by: Optional[str] = "Admin"
@@ -659,6 +898,7 @@ class CandidateService:
         from app.models.program import Program
         stmt = (
             select(
+                Program.id.label("program_id"),
                 CandidateApplication.course_applied,
                 CandidateApplication.program_type,
                 Program.name.label("prog_name"),
@@ -670,6 +910,7 @@ class CandidateService:
                 CandidateApplication.is_deleted == False
             )
             .group_by(
+                Program.id,
                 CandidateApplication.course_applied,
                 CandidateApplication.program_type,
                 Program.name,
@@ -680,7 +921,7 @@ class CandidateService:
         rows = res.all()
 
         aggregated = {}
-        for course_applied, program_type, prog_name, prog_type, count in rows:
+        for program_id,course_applied, program_type, prog_name, prog_type, count in rows:
             class MockProgram:
                 def __init__(self, name, ptype):
                     self.name = name
@@ -704,6 +945,7 @@ class CandidateService:
             key = (name.lower(), type_val.lower())
             if key not in aggregated:
                 aggregated[key] = {
+                    "id": program_id,
                     "name": name,
                     "type": type_val,
                     "count": 0
